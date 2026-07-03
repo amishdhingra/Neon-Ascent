@@ -7,7 +7,7 @@ from player import Player
 
 
 def build_platforms():
-    """Starter layout: ground + a few platforms to jump on."""
+    """Starter layout: ground, platforms, and vertical walls to practice wall jumps."""
     ground = pygame.Rect(0, s.SCREEN_HEIGHT - 40, s.SCREEN_WIDTH, 40)
     platforms = [
         ground,
@@ -15,6 +15,10 @@ def build_platforms():
         pygame.Rect(450, 340, 140, 20),
         pygame.Rect(700, 260, 160, 20),
         pygame.Rect(320, 180, 120, 20),
+        # Vertical walls for step 5
+        pygame.Rect(140, 260, 20, 240),
+        pygame.Rect(380, 200, 20, 300),
+        pygame.Rect(820, 160, 20, 380),
     ]
     return platforms
 
@@ -47,9 +51,11 @@ def main():
 
         keys = pygame.key.get_pressed()
         player.handle_input(keys)
+        player.update_wall_contact(platforms, keys)
         player.apply_gravity()
         player.move_and_collide(platforms)
-        player.try_jump()
+        player.update_wall_contact(platforms, keys)
+        player.try_jump(keys)
         player.update_timers()
 
         screen.fill(s.COLOUR_BG)

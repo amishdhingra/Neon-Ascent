@@ -14,6 +14,10 @@ class Player:
         self.is_sprinting = False
         self.jump_buffer = 0
         self.coyote_timer = 0
+        self.wall_touch_dir = 0
+        self.wall_sliding = False
+        self.can_wall_jump = True
+        self.wall_regrab_timer = 0
 
     def handle_input(self, keys):
         moving_left = keys[pygame.K_a] or keys[pygame.K_LEFT]
@@ -41,7 +45,46 @@ class Player:
         """Call when jump key is pressed — buffered so taps feel reliable."""
         self.jump_buffer = s.JUMP_BUFFER_FRAMES
 
-    def try_jump(self):
+    def update_wall_contact(self, platforms, keys):
+        self.wall_touch_dir = 0
+        self.wall_sliding = False
+
+        if self.on_ground or self.wall_regrab_timer > 0:
+            return
+
+        # No wall cling at the top edge of the screen
+        if self.rect.top <= s.SCREEN_TOP_WALL_MARGIN:
+            return
+
+        moving_left = keys[pygame.K_a] or keys[pygame.K_LEFT]
+        moving_right = keys[pygame.K_d] or keys[pygame.K_RIGHT]
+        left_wall = self._touching_wall(platforms, -1)
+        right_wall = self._touching_wall(platforms, 1)
+
+        if left_wall:
+            self.wall_touch_dir = -1
+        elif right_wall:
+            self.wall_touch_dir = 1
+
+        if left_wall and moving_left:
+            self.wall_sliding = True
+        elif right_wall and moving_right:
+            self.wall_sliding = True
+
+    def _touching_wall(self, platforms, direction):
+        probe = self.rect.copy()
+        if direction == -1:
+            probe.left -= 2
+        else:
+            probe.right += 2
+
+        for platform in platforms:
+            if probe.colliderect(platform):
+                if self.rect.bottom > platform.top + 10:
+                    return True
+        return False
+
+    def try_jump(self, keys):
         """Use buffered jump input after movement/collision for this frame."""
         if self.jump_buffer <= 0:
             return
@@ -51,26 +94,50 @@ class Player:
             self.on_ground = False
             self.coyote_timer = 0
             self.air_jumps_remaining = s.MAX_AIR_JUMPS
+            self.can_wall_jump = True
             self.jump_buffer = 0
             return
 
-        if self.air_jumps_remaining > 0:
+        if self.wall_touch_dir != 0 and self.can_wall_jump:
+            self.vel_y = s.WALL_JUMP_STRENGTH
+            self.vel_x = -self.wall_touch_dir * s.WALL_JUMP_PUSH
+            self.wall_touch_dir = 0
+            self.wall_sliding = False
+            self.can_wall_jump = False
+            self.wall_regrab_timer = s.WALL_REGRAB_COOLDOWN
+            self.jump_buffer = 0
+            return
+
+        # Double jump only when fully off walls — use after wall jump to reach platforms
+        if self.air_jumps_remaining > 0 and self.wall_touch_dir == 0:
             self.vel_y = s.DOUBLE_JUMP_STRENGTH
+            moving_left = keys[pygame.K_a] or keys[pygame.K_LEFT]
+            moving_right = keys[pygame.K_d] or keys[pygame.K_RIGHT]
+            if moving_left:
+                self.vel_x = -s.DOUBLE_JUMP_HORIZONTAL
+            elif moving_right:
+                self.vel_x = s.DOUBLE_JUMP_HORIZONTAL
             self.air_jumps_remaining -= 1
             self.jump_buffer = 0
 
     def update_timers(self):
         if self.on_ground:
             self.coyote_timer = s.COYOTE_TIME_FRAMES
+            self.can_wall_jump = True
         elif self.coyote_timer > 0:
             self.coyote_timer -= 1
 
         if self.jump_buffer > 0:
             self.jump_buffer -= 1
 
+        if self.wall_regrab_timer > 0:
+            self.wall_regrab_timer -= 1
+
     def apply_gravity(self):
         self.vel_y += s.GRAVITY
-        if self.vel_y > s.MAX_FALL_SPEED:
+        if self.wall_sliding and self.vel_y > s.WALL_SLIDE_SPEED:
+            self.vel_y = s.WALL_SLIDE_SPEED
+        elif self.vel_y > s.MAX_FALL_SPEED:
             self.vel_y = s.MAX_FALL_SPEED
 
     def clamp_to_screen(self):
@@ -80,6 +147,8 @@ class Player:
             self.rect.right = s.SCREEN_WIDTH
         if self.rect.top < 0:
             self.rect.top = 0
+            if self.vel_y < 0:
+                self.vel_y = 0
 
     def move_and_collide(self, platforms):
         self.on_ground = False
@@ -103,7 +172,6 @@ class Player:
                     self.rect.top = platform.bottom
                     self.vel_y = 0
 
-        # Snap to ground when barely floating above a platform (fixes missed jumps)
         if not self.on_ground and self.vel_y >= 0:
             for platform in platforms:
                 overlap_x = self.rect.right > platform.left and self.rect.left < platform.right
@@ -117,7 +185,12 @@ class Player:
         self.clamp_to_screen()
 
     def draw(self, surface):
-        colour = s.COLOUR_PLAYER_SPRINT if self.is_sprinting else s.COLOUR_PLAYER
+        if self.wall_sliding:
+            colour = s.COLOUR_PLAYER_WALL
+        elif self.is_sprinting:
+            colour = s.COLOUR_PLAYER_SPRINT
+        else:
+            colour = s.COLOUR_PLAYER
         pygame.draw.rect(surface, colour, self.rect, border_radius=4)
         eye_x = self.rect.centerx + (4 if self.vel_x >= 0 else -4)
         pygame.draw.circle(surface, (255, 255, 255), (eye_x, self.rect.centery - 6), 3)

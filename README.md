@@ -4,13 +4,15 @@ A punishing vertical climb through a glowing neon world. Double jump, sprint, wa
 
 ## Status
 
-Work in progress — run, jump, sprint, and double jump.
+Work in progress — run, jump, sprint, double jump, and wall jump.
 
 ## Controls
 
 - **A / D** or **arrow keys** — Move
-- **Space** or **W** — Jump (press again in mid-air to double jump)
+- **Space** or **W** — Jump (double jump in mid-air; one wall jump per airtime)
 - **Shift** — Sprint (uses stamina — bar top-left)
+- **Hold toward a wall in mid-air** — Wall slide (character turns purple)
+- **Double jump + direction** — Hold A/D when double jumping to steer toward platforms
 - **Esc** — Quit
 
 ## Setup
