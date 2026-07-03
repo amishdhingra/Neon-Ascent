@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run Neon Ascent",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "python": "C:/Users/Amish Dhingra/AppData/Local/Programs/Python/Python312-arm64/python.exe",
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
