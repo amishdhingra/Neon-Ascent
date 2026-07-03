@@ -4,7 +4,7 @@ A punishing vertical climb through a glowing neon world. Double jump, sprint, wa
 
 ## Status
 
-Work in progress — run, jump, sprint, double jump, and wall jump.
+Work in progress — run, jump, sprint, double jump, wall hold and wall jump.
 
 ## Controls
 
