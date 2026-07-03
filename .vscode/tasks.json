@@ -1,0 +1,23 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Run Neon Ascent",
+            "type": "shell",
+            "command": "C:/Users/Amish Dhingra/AppData/Local/Programs/Python/Python312-arm64/python.exe",
+            "args": ["main.py"],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

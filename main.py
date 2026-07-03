@@ -39,17 +39,23 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                if event.key in (pygame.K_SPACE, pygame.K_w, pygame.K_UP):
+                    player.request_jump()
 
         keys = pygame.key.get_pressed()
         player.handle_input(keys)
         player.apply_gravity()
         player.move_and_collide(platforms)
+        player.try_jump()
+        player.update_timers()
 
         screen.fill(s.COLOUR_BG)
         draw_platforms(screen, platforms)
         player.draw(screen)
+        player.draw_stamina_bar(screen)
 
         pygame.display.flip()
         clock.tick(s.FPS)

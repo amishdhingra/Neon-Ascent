@@ -4,12 +4,13 @@ A punishing vertical climb through a glowing neon world. Double jump, sprint, wa
 
 ## Status
 
-Work in progress — prototype with basic run and jump.
+Work in progress — run, jump, sprint, and double jump.
 
 ## Controls
 
 - **A / D** or **arrow keys** — Move
-- **Space** or **W** — Jump
+- **Space** or **W** — Jump (press again in mid-air to double jump)
+- **Shift** — Sprint (uses stamina — bar top-left)
 - **Esc** — Quit
 
 ## Setup
