@@ -3,30 +3,34 @@ import sys
 import pygame
 
 import settings as s
+from camera import Camera
+from level import build_level
 from player import Player
 
 
-def build_platforms():
-    """Starter layout: ground, platforms, and vertical walls to practice wall jumps."""
-    ground = pygame.Rect(0, s.SCREEN_HEIGHT - 40, s.SCREEN_WIDTH, 40)
-    platforms = [
-        ground,
-        pygame.Rect(200, 420, 160, 20),
-        pygame.Rect(450, 340, 140, 20),
-        pygame.Rect(700, 260, 160, 20),
-        pygame.Rect(320, 180, 120, 20),
-        # Vertical walls for step 5
-        pygame.Rect(140, 260, 20, 240),
-        pygame.Rect(380, 200, 20, 300),
-        pygame.Rect(820, 160, 20, 380),
-    ]
-    return platforms
-
-
-def draw_platforms(surface, platforms):
+def draw_platforms(surface, platforms, camera):
     for platform in platforms:
-        pygame.draw.rect(surface, s.COLOUR_PLATFORM, platform, border_radius=6)
-        pygame.draw.rect(surface, s.COLOUR_GROUND, platform, width=2, border_radius=6)
+        if camera.is_visible(platform):
+            screen_rect = camera.world_to_screen(platform)
+            pygame.draw.rect(surface, s.COLOUR_PLATFORM, screen_rect, border_radius=6)
+            pygame.draw.rect(surface, s.COLOUR_GROUND, screen_rect, width=2, border_radius=6)
+
+
+def draw_zones(surface, zones, camera, font):
+    for zone in zones:
+        label_y = zone["y"]
+        if not (camera.offset_y - 60 <= label_y <= camera.offset_y + s.SCREEN_HEIGHT + 60):
+            continue
+        text = font.render(zone["name"], True, s.COLOUR_ZONE_TEXT)
+        screen_x = s.SCREEN_WIDTH // 2 - text.get_width() // 2
+        screen_y = label_y - camera.offset_y
+        surface.blit(text, (screen_x, screen_y))
+
+
+def draw_height(surface, player, font):
+    climbed = s.WORLD_HEIGHT - player.rect.bottom
+    text = font.render(f"Height: {max(0, climbed // 10)}m", True, s.COLOUR_HEIGHT_TEXT)
+    surface.blit(text, (s.SCREEN_WIDTH - text.get_width() - 20, 20))
 
 
 def main():
@@ -34,9 +38,14 @@ def main():
     screen = pygame.display.set_mode((s.SCREEN_WIDTH, s.SCREEN_HEIGHT))
     pygame.display.set_caption(s.TITLE)
     clock = pygame.time.Clock()
+    font = pygame.font.Font(None, 36)
+    small_font = pygame.font.Font(None, 28)
 
+    level = build_level()
+    platforms = level["platforms"]
+    zones = level["zones"]
+    camera = Camera(level["world_width"], level["world_height"])
     player = Player(s.PLAYER_START_X, s.PLAYER_START_Y)
-    platforms = build_platforms()
 
     running = True
     while running:
@@ -57,11 +66,14 @@ def main():
         player.update_wall_contact(platforms, keys)
         player.try_jump(keys)
         player.update_timers()
+        camera.update(player.rect)
 
         screen.fill(s.COLOUR_BG)
-        draw_platforms(screen, platforms)
-        player.draw(screen)
+        draw_zones(screen, zones, camera, font)
+        draw_platforms(screen, platforms, camera)
+        player.draw(screen, camera)
         player.draw_stamina_bar(screen)
+        draw_height(screen, player, small_font)
 
         pygame.display.flip()
         clock.tick(s.FPS)

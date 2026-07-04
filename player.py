@@ -52,7 +52,7 @@ class Player:
         if self.on_ground or self.wall_regrab_timer > 0:
             return
 
-        # No wall cling at the top edge of the screen
+        # No wall cling at the top of the world
         if self.rect.top <= s.SCREEN_TOP_WALL_MARGIN:
             return
 
@@ -140,15 +140,21 @@ class Player:
         elif self.vel_y > s.MAX_FALL_SPEED:
             self.vel_y = s.MAX_FALL_SPEED
 
-    def clamp_to_screen(self):
-        if self.rect.left < 0:
-            self.rect.left = 0
-        if self.rect.right > s.SCREEN_WIDTH:
-            self.rect.right = s.SCREEN_WIDTH
+    def clamp_to_world(self):
+        left_limit = s.WORLD_SIDE_MARGIN
+        right_limit = s.WORLD_WIDTH - s.WORLD_SIDE_MARGIN
+        if self.rect.left < left_limit:
+            self.rect.left = left_limit
+        if self.rect.right > right_limit:
+            self.rect.right = right_limit
         if self.rect.top < 0:
             self.rect.top = 0
             if self.vel_y < 0:
                 self.vel_y = 0
+        if self.rect.bottom > s.WORLD_HEIGHT:
+            self.rect.bottom = s.WORLD_HEIGHT
+            self.vel_y = 0
+            self.on_ground = True
 
     def move_and_collide(self, platforms):
         self.on_ground = False
@@ -182,18 +188,19 @@ class Player:
                     self.on_ground = True
                     break
 
-        self.clamp_to_screen()
+        self.clamp_to_world()
 
-    def draw(self, surface):
+    def draw(self, surface, camera):
+        screen_rect = camera.world_to_screen(self.rect)
         if self.wall_sliding:
             colour = s.COLOUR_PLAYER_WALL
         elif self.is_sprinting:
             colour = s.COLOUR_PLAYER_SPRINT
         else:
             colour = s.COLOUR_PLAYER
-        pygame.draw.rect(surface, colour, self.rect, border_radius=4)
-        eye_x = self.rect.centerx + (4 if self.vel_x >= 0 else -4)
-        pygame.draw.circle(surface, (255, 255, 255), (eye_x, self.rect.centery - 6), 3)
+        pygame.draw.rect(surface, colour, screen_rect, border_radius=4)
+        eye_x = screen_rect.centerx + (4 if self.vel_x >= 0 else -4)
+        pygame.draw.circle(surface, (255, 255, 255), (eye_x, screen_rect.centery - 6), 3)
 
     def draw_stamina_bar(self, surface):
         bar_x, bar_y = 20, 20

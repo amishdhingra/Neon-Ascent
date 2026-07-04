@@ -4,6 +4,10 @@ SCREEN_HEIGHT = 540
 FPS = 60
 TITLE = "Neon Ascent"
 
+# World (taller than the screen — camera scrolls vertically)
+WORLD_WIDTH = 960
+WORLD_HEIGHT = 3200
+
 # Colours (R, G, B)
 COLOUR_BG = (12, 10, 28)
 COLOUR_PLATFORM = (80, 255, 220)
@@ -13,6 +17,8 @@ COLOUR_STAMINA_BG = (40, 40, 60)
 COLOUR_STAMINA_FILL = (255, 200, 60)
 COLOUR_PLAYER_SPRINT = (255, 120, 60)
 COLOUR_PLAYER_WALL = (180, 100, 255)
+COLOUR_ZONE_TEXT = (120, 255, 200)
+COLOUR_HEIGHT_TEXT = (200, 200, 220)
 
 # Player movement
 PLAYER_WIDTH = 32
@@ -38,6 +44,7 @@ WALL_JUMP_PUSH = 9
 WALL_REGRAB_COOLDOWN = 18
 SCREEN_TOP_WALL_MARGIN = 4
 
-# Starting position
-PLAYER_START_X = 100
-PLAYER_START_Y = 400
+# Starting position (world coordinates — bottom of the climb)
+PLAYER_START_X = 120
+PLAYER_START_Y = 2990
+WORLD_SIDE_MARGIN = 20

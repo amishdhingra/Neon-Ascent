@@ -4,7 +4,7 @@ A punishing vertical climb through a glowing neon world. Double jump, sprint, wa
 
 ## Status
 
-Work in progress — run, jump, sprint, double jump, and wall jump.
+Work in progress — vertical climb with camera, sprint, double jump, and wall jump.
 
 ## Controls
 
@@ -14,6 +14,8 @@ Work in progress — run, jump, sprint, double jump, and wall jump.
 - **Hold toward a wall in mid-air** — Wall slide (character turns purple)
 - **Double jump + direction** — Hold A/D when double jumping to steer toward platforms
 - **Esc** — Quit
+
+Climb through five zones: **The Pit → Neon Pipes → The Gap → The Tower → The Summit**.
 
 ## Setup
 
