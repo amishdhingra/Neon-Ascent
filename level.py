@@ -1,4 +1,4 @@
-"""Procedural level generation for Neon Ascent."""
+"""Procedural level generation for Neon Ascent — multi-path vertical climbs."""
 
 import random
 
@@ -15,6 +15,9 @@ ZONES = [
     {"name": "THE TOWER", "y": 480},
     {"name": "THE SUMMIT", "y": 120},
 ]
+
+# Left, centre, and right climb routes (fraction of world width)
+LANE_FRACTIONS = (0.17, 0.50, 0.83)
 
 
 def _scale_width(width, world_width):
@@ -38,11 +41,10 @@ def _clamp_platform_x(center_x, pw, edge, world_width):
 
 
 def _resolve_clear_spot(platforms, rect, edge, world_width):
-    """Nudge rect horizontally until it no longer overlaps anything."""
     if not _overlaps(platforms, rect):
         return rect
 
-    for distance in range(20, 320, 20):
+    for distance in range(24, 360, 24):
         for direction in (-1, 1):
             moved = rect.copy()
             moved.x += direction * distance
@@ -53,68 +55,119 @@ def _resolve_clear_spot(platforms, rect, edge, world_width):
     return None
 
 
-def _place_main_step(path, platforms, rng, w, edge, plat_h, max_x, min_up, max_up, bias_x=0.0):
-    """Place the next guaranteed step on the main climb route."""
-    pw = rng.randint(_scale_width(110, w), _scale_width(165, w))
-    step_up = rng.randint(min_up, max_up)
-    target_x = path.centerx * (1 - bias_x) + (w / 2) * bias_x
+def _add_platform(platforms, rect, edge, world_width):
+    cleared = _resolve_clear_spot(platforms, rect, edge, world_width)
+    if cleared and not _overlaps(platforms, cleared):
+        platforms.append(cleared)
+        return cleared
+    return None
 
-    for attempt in range(32):
-        shift = rng.randint(-int(max_x * 0.45), int(max_x * 0.45))
-        y = path.top - step_up - (attempt // 10) * 6
-        px = _clamp_platform_x(target_x + shift, pw, edge, w)
+
+def _lane_x(lane_fraction, world_width):
+    return lane_fraction * world_width
+
+
+def _place_lane_step(parent, lane_fraction, platforms, rng, w, edge, plat_h, max_x, min_up, max_up):
+    """Place the next platform for one lane, kept near that lane's horizontal band."""
+    pw = rng.randint(_scale_width(95, w), _scale_width(150, w))
+    step_up = rng.randint(min_up, max_up)
+    band = int(max_x * 0.35)
+    anchor_x = _lane_x(lane_fraction, w)
+
+    for attempt in range(36):
+        jitter = rng.randint(-band, band)
+        y = parent.top - step_up - (attempt // 12) * 5
+        px = _clamp_platform_x(anchor_x + jitter, pw, edge, w)
         candidate = pygame.Rect(px, y, pw, plat_h)
 
-        if not _reachable(path, candidate, max_x, min_up, max_up + 15):
+        if not _reachable(parent, candidate, max_x, min_up, max_up + 15):
             continue
 
         cleared = _resolve_clear_spot(platforms, candidate, edge, w)
         if cleared:
             return cleared
 
-    fallback = pygame.Rect(_clamp_platform_x(path.centerx, pw, edge, w), path.top - step_up, pw, plat_h)
+    fallback = pygame.Rect(_clamp_platform_x(anchor_x, pw, edge, w), parent.top - step_up, pw, plat_h)
     cleared = _resolve_clear_spot(platforms, fallback, edge, w)
     return cleared or fallback
 
 
-def _try_extra_platform(recent_steps, platforms, rng, w, edge, plat_h, max_x, min_up, max_up):
-    if rng.random() > 0.28:
-        return None
+def _spread_lane_start(from_platform, lane_fraction, platforms, rng, w, edge, plat_h, max_x, min_up, max_up):
+    """First step onto a side lane from the starting area."""
+    spread_x = int(340 * w / BASE_WORLD_WIDTH)
+    pw = rng.randint(_scale_width(100, w), _scale_width(155, w))
+    step_up = rng.randint(min_up, max_up)
+    anchor_x = _lane_x(lane_fraction, w)
 
-    anchor = rng.choice(recent_steps[-3:])
-    pw = rng.randint(_scale_width(85, w), _scale_width(125, w))
-
-    for _ in range(24):
-        px = rng.randint(edge, w - pw - edge)
-        candidate = pygame.Rect(px, anchor.top, pw, plat_h)
-        if _overlaps(platforms, candidate):
+    for attempt in range(40):
+        y = from_platform.top - step_up - (attempt // 10) * 4
+        px = _clamp_platform_x(anchor_x, pw, edge, w)
+        candidate = pygame.Rect(px, y, pw, plat_h)
+        if not _reachable(from_platform, candidate, spread_x, min_up, max_up + 20):
             continue
-        if any(_reachable(step, candidate, max_x, min_up, max_up + 10) for step in recent_steps[-4:]):
-            return candidate
+        cleared = _resolve_clear_spot(platforms, candidate, edge, w)
+        if cleared:
+            return cleared
     return None
 
 
-def _try_wall(anchor, platforms, rng, w, edge, plat_h):
-    if rng.random() > 0.12:
+def _try_bridge(head_a, head_b, platforms, rng, w, edge, plat_h, max_x, min_up, max_up):
+    """Optional platform between two lanes so you can switch routes."""
+    mid_x = (head_a.centerx + head_b.centerx) / 2
+    y = min(head_a.top, head_b.top) - rng.randint(min_up, max_up)
+    pw = rng.randint(_scale_width(90, w), _scale_width(135, w))
+    candidate = pygame.Rect(_clamp_platform_x(mid_x, pw, edge, w), y, pw, plat_h)
+    bridge_max_x = int(max_x * 1.15)
+
+    if not _reachable(head_a, candidate, bridge_max_x, min_up, max_up + 25):
+        return None
+    if not _reachable(head_b, candidate, bridge_max_x, min_up, max_up + 25):
+        return None
+    if _overlaps(platforms, candidate):
+        return _resolve_clear_spot(platforms, candidate, edge, w)
+    return candidate
+
+
+def _try_wall(anchor, lane_fraction, platforms, rng, w, edge, plat_h):
+    if rng.random() > 0.1:
         return None
 
     wall_w = _scale_width(20, w)
     wall_h = rng.randint(130, 210)
-    side = rng.choice([-1, 1])
 
-    if side == -1:
+    # Walls face outward so they don't block neighbouring lanes
+    if lane_fraction <= 0.25:
         wx = anchor.left - wall_w - 14
-    else:
+    elif lane_fraction >= 0.75:
         wx = anchor.right + 14
+    else:
+        side = rng.choice([-1, 1])
+        wx = anchor.left - wall_w - 14 if side == -1 else anchor.right + 14
 
     if wx < edge or wx + wall_w > w - edge:
         return None
 
-    wy = anchor.top - wall_h + plat_h
-    wall = pygame.Rect(wx, wy, wall_w, wall_h)
-    if _overlaps(platforms, wall, gap=10):
+    wall = pygame.Rect(wx, anchor.top - wall_h + plat_h, wall_w, wall_h)
+    if _overlaps(platforms, wall, gap=16):
         return None
     return wall
+
+
+def _converge_lane(head, lane_fraction, platforms, rng, w, edge, plat_h, max_x, min_up, max_up, pull=0.45):
+    """Final steps pull each lane toward the summit centre."""
+    bias = _lane_x(lane_fraction, w) * (1 - pull) + (w / 2) * pull
+    pw = rng.randint(_scale_width(105, w), _scale_width(160, w))
+    step_up = rng.randint(min_up, max_up)
+    px = _clamp_platform_x(bias, pw, edge, w)
+    candidate = pygame.Rect(px, head.top - step_up, pw, plat_h)
+
+    if not _reachable(head, candidate, max_x, min_up, max_up + 15):
+        candidate.centerx = int(head.centerx * 0.55 + (w / 2) * 0.45)
+        candidate.top = head.top - step_up
+        candidate.left = _clamp_platform_x(candidate.centerx + candidate.width / 2, candidate.width, edge, w)
+
+    cleared = _resolve_clear_spot(platforms, candidate, edge, w)
+    return cleared or candidate
 
 
 def generate_level(seed=None):
@@ -131,37 +184,59 @@ def generate_level(seed=None):
 
     platforms = [pygame.Rect(0, h - 40, w, 40)]
 
-    start_w = _scale_width(190, w)
-    start = pygame.Rect(_clamp_platform_x(w * 0.18, start_w, edge, w), h - 84, start_w, plat_h)
+    start_w = _scale_width(200, w)
+    start = pygame.Rect(_clamp_platform_x(_lane_x(LANE_FRACTIONS[0], w), start_w, edge, w), h - 84, start_w, plat_h)
     platforms.append(start)
 
-    path = start
-    recent_steps = [start]
+    lane_heads = [start, None, None]
 
-    while path.top > 240:
-        main = _place_main_step(path, platforms, rng, w, edge, plat_h, max_x, min_up, max_up)
-        platforms.append(main)
-        path = main
-        recent_steps.append(main)
+    for lane_idx in (1, 2):
+        entry = _spread_lane_start(start, LANE_FRACTIONS[lane_idx], platforms, rng, w, edge, plat_h, max_x, min_up, max_up)
+        if entry:
+            platforms.append(entry)
+            lane_heads[lane_idx] = entry
+        else:
+            entry = _place_lane_step(start, LANE_FRACTIONS[lane_idx], platforms, rng, w, edge, plat_h, max_x, min_up, max_up)
+            platforms.append(entry)
+            lane_heads[lane_idx] = entry
 
-        extra = _try_extra_platform(recent_steps, platforms, rng, w, edge, plat_h, max_x, min_up, max_up)
-        if extra:
-            platforms.append(extra)
+    row = 0
+    while min(head.top for head in lane_heads) > 280:
+        for lane_idx, lane_frac in enumerate(LANE_FRACTIONS):
+            step = _place_lane_step(lane_heads[lane_idx], lane_frac, platforms, rng, w, edge, plat_h, max_x, min_up, max_up)
+            platforms.append(step)
+            lane_heads[lane_idx] = step
 
-        wall = _try_wall(main, platforms, rng, w, edge, plat_h)
-        if wall:
-            platforms.append(wall)
+            wall = _try_wall(step, lane_frac, platforms, rng, w, edge, plat_h)
+            if wall:
+                platforms.append(wall)
 
-    step2 = _place_main_step(path, platforms, rng, w, edge, plat_h, max_x, min_up, max_up, bias_x=0.35)
-    platforms.append(step2)
+        row += 1
+        if row % 4 == 0:
+            for left_idx, right_idx in ((0, 1), (1, 2)):
+                bridge = _try_bridge(
+                    lane_heads[left_idx], lane_heads[right_idx], platforms, rng, w, edge, plat_h, max_x, min_up, max_up
+                )
+                if bridge:
+                    platforms.append(bridge)
 
-    step1 = _place_main_step(step2, platforms, rng, w, edge, plat_h, max_x, min_up, max_up, bias_x=0.65)
-    platforms.append(step1)
+    for lane_idx, lane_frac in enumerate(LANE_FRACTIONS):
+        step = _converge_lane(lane_heads[lane_idx], lane_frac, platforms, rng, w, edge, plat_h, max_x, min_up, max_up, pull=0.5)
+        platforms.append(step)
+        lane_heads[lane_idx] = step
 
-    summit_w = _scale_width(280, w)
+    merge = _try_bridge(lane_heads[0], lane_heads[2], platforms, rng, w, edge, plat_h, max_x, min_up, max_up)
+    if merge:
+        platforms.append(merge)
+        anchor = merge
+    else:
+        anchor = lane_heads[1]
+
+    summit_w = _scale_width(300, w)
     summit = pygame.Rect(w // 2 - summit_w // 2, 48, summit_w, 24)
-    if not _overlaps(platforms, summit):
-        platforms.append(summit)
+    approach = _converge_lane(anchor, 0.5, platforms, rng, w, edge, plat_h, max_x, min_up, max_up, pull=1.0)
+    _add_platform(platforms, approach, edge, w)
+    _add_platform(platforms, summit, edge, w)
 
     return {
         "platforms": platforms,
