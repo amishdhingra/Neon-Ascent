@@ -8,7 +8,6 @@ A punishing vertical climb through a glowing neon world. Double jump, sprint, wa
 Work in progress — vertical climb with camera, sprint, double jump, and wall jump.
 =======
 Work in progress — run, jump, sprint, double jump, wall hold and wall jump.
->>>>>>> ae3e0c9f9fdc3718c197555e5fe9e4da8d53e751
 
 ## Controls
 
