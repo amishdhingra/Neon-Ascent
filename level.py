@@ -1,10 +1,11 @@
-"""World layout for Neon Ascent — one tall vertical climb with named zones."""
+"""Procedural level generation for Neon Ascent."""
+
+import random
 
 import pygame
 
 import settings as s
 
-# Level was originally designed at this width; it scales to the fullscreen width.
 BASE_WORLD_WIDTH = 960
 
 ZONES = [
@@ -16,88 +17,161 @@ ZONES = [
 ]
 
 
-def build_level():
-    """Return platforms and metadata for the full climb."""
+def _scale_width(width, world_width):
+    return max(20, int(width * world_width / BASE_WORLD_WIDTH))
+
+
+def _reachable(from_rect, to_rect, max_x, min_up, max_up):
+    dx = abs(to_rect.centerx - from_rect.centerx)
+    dy = from_rect.top - to_rect.top
+    return dx <= max_x and min_up <= dy <= max_up
+
+
+def _overlaps(platforms, rect, gap=16):
+    padded = rect.inflate(gap, gap)
+    return any(padded.colliderect(other) for other in platforms)
+
+
+def _clamp_platform_x(center_x, pw, edge, world_width):
+    left = int(center_x - pw / 2)
+    return max(edge, min(world_width - pw - edge, left))
+
+
+def _resolve_clear_spot(platforms, rect, edge, world_width):
+    """Nudge rect horizontally until it no longer overlaps anything."""
+    if not _overlaps(platforms, rect):
+        return rect
+
+    for distance in range(20, 320, 20):
+        for direction in (-1, 1):
+            moved = rect.copy()
+            moved.x += direction * distance
+            if moved.left < edge or moved.right > world_width - edge:
+                continue
+            if not _overlaps(platforms, moved):
+                return moved
+    return None
+
+
+def _place_main_step(path, platforms, rng, w, edge, plat_h, max_x, min_up, max_up, bias_x=0.0):
+    """Place the next guaranteed step on the main climb route."""
+    pw = rng.randint(_scale_width(110, w), _scale_width(165, w))
+    step_up = rng.randint(min_up, max_up)
+    target_x = path.centerx * (1 - bias_x) + (w / 2) * bias_x
+
+    for attempt in range(32):
+        shift = rng.randint(-int(max_x * 0.45), int(max_x * 0.45))
+        y = path.top - step_up - (attempt // 10) * 6
+        px = _clamp_platform_x(target_x + shift, pw, edge, w)
+        candidate = pygame.Rect(px, y, pw, plat_h)
+
+        if not _reachable(path, candidate, max_x, min_up, max_up + 15):
+            continue
+
+        cleared = _resolve_clear_spot(platforms, candidate, edge, w)
+        if cleared:
+            return cleared
+
+    fallback = pygame.Rect(_clamp_platform_x(path.centerx, pw, edge, w), path.top - step_up, pw, plat_h)
+    cleared = _resolve_clear_spot(platforms, fallback, edge, w)
+    return cleared or fallback
+
+
+def _try_extra_platform(recent_steps, platforms, rng, w, edge, plat_h, max_x, min_up, max_up):
+    if rng.random() > 0.28:
+        return None
+
+    anchor = rng.choice(recent_steps[-3:])
+    pw = rng.randint(_scale_width(85, w), _scale_width(125, w))
+
+    for _ in range(24):
+        px = rng.randint(edge, w - pw - edge)
+        candidate = pygame.Rect(px, anchor.top, pw, plat_h)
+        if _overlaps(platforms, candidate):
+            continue
+        if any(_reachable(step, candidate, max_x, min_up, max_up + 10) for step in recent_steps[-4:]):
+            return candidate
+    return None
+
+
+def _try_wall(anchor, platforms, rng, w, edge, plat_h):
+    if rng.random() > 0.12:
+        return None
+
+    wall_w = _scale_width(20, w)
+    wall_h = rng.randint(130, 210)
+    side = rng.choice([-1, 1])
+
+    if side == -1:
+        wx = anchor.left - wall_w - 14
+    else:
+        wx = anchor.right + 14
+
+    if wx < edge or wx + wall_w > w - edge:
+        return None
+
+    wy = anchor.top - wall_h + plat_h
+    wall = pygame.Rect(wx, wy, wall_w, wall_h)
+    if _overlaps(platforms, wall, gap=10):
+        return None
+    return wall
+
+
+def generate_level(seed=None):
+    if seed is None:
+        seed = random.randint(1, 999_999)
+    rng = random.Random(seed)
+
     w, h = s.WORLD_WIDTH, s.WORLD_HEIGHT
-    scale = w / BASE_WORLD_WIDTH
+    edge = max(40, int(40 * w / BASE_WORLD_WIDTH))
+    plat_h = 20
+    max_x = int(200 * w / BASE_WORLD_WIDTH)
+    min_up = int(58 * w / BASE_WORLD_WIDTH)
+    max_up = int(102 * w / BASE_WORLD_WIDTH)
 
-    def sx(x):
-        return int(x * scale)
+    platforms = [pygame.Rect(0, h - 40, w, 40)]
 
-    def sw(width):
-        return max(20, int(width * scale))
+    start_w = _scale_width(190, w)
+    start = pygame.Rect(_clamp_platform_x(w * 0.18, start_w, edge, w), h - 84, start_w, plat_h)
+    platforms.append(start)
 
-    def R(x, y, rw, rh):
-        return pygame.Rect(sx(x), y, sw(rw), rh)
+    path = start
+    recent_steps = [start]
 
-    platforms = [
-        # Full-width ground — invisible side barriers sit at x=0 and x=w
-        pygame.Rect(0, h - 40, w, 40),
-        # --- THE PIT (bottom) ---
-        R(60, 3040, 220, 20),
-        R(340, 2960, 160, 20),
-        R(620, 2880, 180, 20),
-        R(180, 2800, 140, 20),
-        R(480, 2720, 160, 20),
-        R(760, 2640, 140, 20),
-        R(120, 2560, 120, 20),
-        R(740, 2480, 20, 220),
-        # Extra side routes on wider screens
-        R(20, 2900, 100, 20),
-        R(820, 2820, 100, 20),
-        # --- NEON PIPES ---
-        R(220, 2400, 140, 20),
-        R(520, 2320, 140, 20),
-        R(760, 2240, 120, 20),
-        R(280, 2160, 160, 20),
-        R(600, 2080, 140, 20),
-        R(160, 2000, 120, 20),
-        R(480, 1920, 180, 20),
-        R(760, 1840, 120, 20),
-        R(200, 1760, 20, 280),
-        R(740, 1760, 20, 280),
-        R(340, 1680, 280, 20),
-        R(40, 2280, 120, 20),
-        R(800, 2200, 120, 20),
-        # --- THE GAP ---
-        R(80, 1600, 160, 20),
-        R(420, 1520, 140, 20),
-        R(700, 1440, 160, 20),
-        R(240, 1360, 120, 20),
-        R(560, 1280, 140, 20),
-        R(120, 1200, 180, 20),
-        R(480, 1120, 160, 20),
-        R(760, 1040, 120, 20),
-        R(300, 960, 140, 20),
-        R(620, 880, 120, 20),
-        R(180, 800, 20, 240),
-        R(760, 800, 20, 240),
-        R(30, 1480, 100, 20),
-        R(830, 1400, 100, 20),
-        # --- THE TOWER ---
-        R(400, 720, 160, 20),
-        R(320, 640, 120, 20),
-        R(520, 560, 120, 20),
-        R(380, 480, 200, 20),
-        R(360, 400, 20, 200),
-        R(580, 400, 20, 200),
-        R(420, 320, 120, 20),
-        R(360, 240, 240, 20),
-        R(80, 600, 140, 20),
-        R(740, 520, 140, 20),
-        # --- THE SUMMIT ---
-        R(340, 160, 280, 24),
-        R(400, 80, 160, 20),
-        R(120, 120, 120, 20),
-        R(720, 100, 120, 20),
-    ]
+    while path.top > 240:
+        main = _place_main_step(path, platforms, rng, w, edge, plat_h, max_x, min_up, max_up)
+        platforms.append(main)
+        path = main
+        recent_steps.append(main)
+
+        extra = _try_extra_platform(recent_steps, platforms, rng, w, edge, plat_h, max_x, min_up, max_up)
+        if extra:
+            platforms.append(extra)
+
+        wall = _try_wall(main, platforms, rng, w, edge, plat_h)
+        if wall:
+            platforms.append(wall)
+
+    step2 = _place_main_step(path, platforms, rng, w, edge, plat_h, max_x, min_up, max_up, bias_x=0.35)
+    platforms.append(step2)
+
+    step1 = _place_main_step(step2, platforms, rng, w, edge, plat_h, max_x, min_up, max_up, bias_x=0.65)
+    platforms.append(step1)
+
+    summit_w = _scale_width(280, w)
+    summit = pygame.Rect(w // 2 - summit_w // 2, 48, summit_w, 24)
+    if not _overlaps(platforms, summit):
+        platforms.append(summit)
+
     return {
         "platforms": platforms,
         "zones": ZONES,
         "world_width": w,
         "world_height": h,
+        "seed": seed,
+        "start_x": start.x + 24,
+        "start_y": start.top - s.PLAYER_HEIGHT - 2,
     }
 
 
-def scaled_start_x():
-    return int(s.PLAYER_START_X * s.WORLD_WIDTH / BASE_WORLD_WIDTH)
+build_level = generate_level

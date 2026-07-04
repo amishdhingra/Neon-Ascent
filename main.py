@@ -4,7 +4,7 @@ import pygame
 
 import settings as s
 from camera import Camera
-from level import build_level, scaled_start_x
+from level import generate_level
 from player import Player
 
 
@@ -27,10 +27,12 @@ def draw_zones(surface, zones, camera, font):
         surface.blit(text, (screen_x, screen_y))
 
 
-def draw_height(surface, player, font):
+def draw_hud(surface, player, font, seed):
     climbed = s.WORLD_HEIGHT - player.rect.bottom
-    text = font.render(f"Height: {max(0, climbed // 10)}m", True, s.COLOUR_HEIGHT_TEXT)
-    surface.blit(text, (s.SCREEN_WIDTH - text.get_width() - 20, 20))
+    height_text = font.render(f"Height: {max(0, climbed // 10)}m", True, s.COLOUR_HEIGHT_TEXT)
+    seed_text = font.render(f"Seed: {seed}", True, s.COLOUR_HEIGHT_TEXT)
+    surface.blit(height_text, (s.SCREEN_WIDTH - height_text.get_width() - 20, 20))
+    surface.blit(seed_text, (s.SCREEN_WIDTH - seed_text.get_width() - 20, 46))
 
 
 def setup_display():
@@ -51,11 +53,12 @@ def main():
     font = pygame.font.Font(None, 36)
     small_font = pygame.font.Font(None, 28)
 
-    level = build_level()
+    level = generate_level()
     platforms = level["platforms"]
     zones = level["zones"]
+    map_seed = level["seed"]
     camera = Camera(level["world_width"], level["world_height"])
-    player = Player(scaled_start_x(), s.PLAYER_START_Y)
+    player = Player(level["start_x"], level["start_y"])
 
     running = True
     while running:
@@ -83,7 +86,7 @@ def main():
         draw_platforms(screen, platforms, camera)
         player.draw(screen, camera)
         player.draw_stamina_bar(screen)
-        draw_height(screen, player, small_font)
+        draw_hud(screen, player, small_font, map_seed)
 
         pygame.display.flip()
         clock.tick(s.FPS)

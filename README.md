@@ -4,10 +4,9 @@ A punishing vertical climb through a glowing neon world. Double jump, sprint, wa
 
 ## Status
 
-<<<<<<< HEAD
-Work in progress — vertical climb with camera, sprint, double jump, and wall jump.
-=======
-Work in progress — run, jump, sprint, double jump, wall hold and wall jump.
+Work in progress — procedural vertical climb with camera, sprint, double jump, and wall jump.
+
+Each run generates a **new random map** (seed shown top-right).
 
 ## Controls
 
