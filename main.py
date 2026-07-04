@@ -4,7 +4,7 @@ import pygame
 
 import settings as s
 from camera import Camera
-from level import build_level
+from level import build_level, scaled_start_x
 from player import Player
 
 
@@ -40,6 +40,7 @@ def setup_display():
     else:
         screen = pygame.display.set_mode((s.SCREEN_WIDTH, s.SCREEN_HEIGHT))
     s.SCREEN_WIDTH, s.SCREEN_HEIGHT = screen.get_size()
+    s.WORLD_WIDTH = s.SCREEN_WIDTH
     pygame.display.set_caption(s.TITLE)
     return screen
 
@@ -54,7 +55,7 @@ def main():
     platforms = level["platforms"]
     zones = level["zones"]
     camera = Camera(level["world_width"], level["world_height"])
-    player = Player(s.PLAYER_START_X, s.PLAYER_START_Y)
+    player = Player(scaled_start_x(), s.PLAYER_START_Y)
 
     running = True
     while running:

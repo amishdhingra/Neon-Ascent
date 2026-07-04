@@ -5,9 +5,10 @@ FPS = 60
 TITLE = "Neon Ascent"
 FULLSCREEN = True
 
-# World (taller than the screen — camera scrolls vertically)
+# World (width matches fullscreen at runtime; height is the full climb)
 WORLD_WIDTH = 960
 WORLD_HEIGHT = 3200
+BASE_WORLD_WIDTH = 960
 
 # Colours (R, G, B)
 COLOUR_BG = (12, 10, 28)
@@ -45,6 +46,6 @@ WALL_JUMP_PUSH = 9
 WALL_REGRAB_COOLDOWN = 18
 SCREEN_TOP_WALL_MARGIN = 4
 
-# Starting position (world coordinates — bottom of the climb)
+# Starting position (base design coords — scaled to world width at startup)
 PLAYER_START_X = 120
 PLAYER_START_Y = 2990

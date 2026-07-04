@@ -11,11 +11,8 @@ class Camera:
         self.offset_y = 0
 
     def update(self, target):
-        if self.world_width <= s.SCREEN_WIDTH:
-            self.offset_x = -(s.SCREEN_WIDTH - self.world_width) // 2
-        else:
-            self.offset_x = target.centerx - s.SCREEN_WIDTH // 2
-            self.offset_x = max(0, min(self.offset_x, self.world_width - s.SCREEN_WIDTH))
+        # World width matches the window — no horizontal letterboxing
+        self.offset_x = 0
 
         self.offset_y = target.centery - s.SCREEN_HEIGHT // 2
         max_offset_y = max(0, self.world_height - s.SCREEN_HEIGHT)
