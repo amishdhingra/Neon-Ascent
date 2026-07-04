@@ -61,6 +61,7 @@ def main():
     player = Player(level["start_x"], level["start_y"])
 
     running = True
+    dt = 1.0
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -72,13 +73,13 @@ def main():
                     player.request_jump()
 
         keys = pygame.key.get_pressed()
-        player.handle_input(keys)
+        player.handle_input(keys, dt)
         player.update_wall_contact(platforms, keys)
-        player.apply_gravity()
-        player.move_and_collide(platforms)
+        player.apply_gravity(dt)
+        player.move_and_collide(platforms, dt)
         player.update_wall_contact(platforms, keys)
         player.try_jump(keys)
-        player.update_timers()
+        player.update_timers(dt)
         camera.update(player.rect)
 
         screen.fill(s.COLOUR_BG)
@@ -89,7 +90,8 @@ def main():
         draw_hud(screen, player, small_font, map_seed)
 
         pygame.display.flip()
-        clock.tick(s.FPS)
+        frame_ms = clock.tick(s.FPS)
+        dt = min(max(frame_ms, 1) / s.BASE_FRAME_MS, 2.5)
 
     pygame.quit()
     sys.exit()

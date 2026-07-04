@@ -19,7 +19,7 @@ class Player:
         self.can_wall_jump = True
         self.wall_regrab_timer = 0
 
-    def handle_input(self, keys):
+    def handle_input(self, keys, dt=1.0):
         moving_left = keys[pygame.K_a] or keys[pygame.K_LEFT]
         moving_right = keys[pygame.K_d] or keys[pygame.K_RIGHT]
         wants_sprint = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
@@ -31,9 +31,9 @@ class Player:
         if wants_sprint and is_moving and self.stamina > 0:
             speed = s.SPRINT_SPEED
             self.is_sprinting = True
-            self.stamina = max(0, self.stamina - s.SPRINT_DRAIN_RATE)
+            self.stamina = max(0, self.stamina - s.SPRINT_DRAIN_RATE * dt)
         elif self.stamina < s.SPRINT_STAMINA_MAX:
-            self.stamina = min(s.SPRINT_STAMINA_MAX, self.stamina + s.SPRINT_REGEN_RATE)
+            self.stamina = min(s.SPRINT_STAMINA_MAX, self.stamina + s.SPRINT_REGEN_RATE * dt)
 
         self.vel_x = 0
         if moving_left:
@@ -120,21 +120,21 @@ class Player:
             self.air_jumps_remaining -= 1
             self.jump_buffer = 0
 
-    def update_timers(self):
+    def update_timers(self, dt=1.0):
         if self.on_ground:
             self.coyote_timer = s.COYOTE_TIME_FRAMES
             self.can_wall_jump = True
         elif self.coyote_timer > 0:
-            self.coyote_timer -= 1
+            self.coyote_timer -= dt
 
         if self.jump_buffer > 0:
-            self.jump_buffer -= 1
+            self.jump_buffer -= dt
 
         if self.wall_regrab_timer > 0:
-            self.wall_regrab_timer -= 1
+            self.wall_regrab_timer -= dt
 
-    def apply_gravity(self):
-        self.vel_y += s.GRAVITY
+    def apply_gravity(self, dt=1.0):
+        self.vel_y += s.GRAVITY * dt
         if self.wall_sliding and self.vel_y > s.WALL_SLIDE_SPEED:
             self.vel_y = s.WALL_SLIDE_SPEED
         elif self.vel_y > s.MAX_FALL_SPEED:
@@ -159,10 +159,10 @@ class Player:
             self.vel_y = 0
             self.on_ground = True
 
-    def move_and_collide(self, platforms):
+    def move_and_collide(self, platforms, dt=1.0):
         self.on_ground = False
 
-        self.rect.x += int(self.vel_x)
+        self.rect.x += int(self.vel_x * dt)
         for platform in platforms:
             if self.rect.colliderect(platform):
                 if self.vel_x > 0:
@@ -170,7 +170,7 @@ class Player:
                 elif self.vel_x < 0:
                     self.rect.left = platform.right
 
-        self.rect.y += int(self.vel_y)
+        self.rect.y += int(self.vel_y * dt)
         for platform in platforms:
             if self.rect.colliderect(platform):
                 if self.vel_y > 0:

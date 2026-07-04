@@ -1,7 +1,9 @@
 # Screen (defaults — updated to monitor size when the game starts)
 SCREEN_WIDTH = 960
 SCREEN_HEIGHT = 540
-FPS = 60
+FPS = 120
+# Movement values were tuned at 60 updates/sec; dt scales them for higher FPS.
+BASE_FRAME_MS = 1000.0 / 60.0
 TITLE = "Neon Ascent"
 FULLSCREEN = True
 
