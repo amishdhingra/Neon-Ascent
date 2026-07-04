@@ -22,10 +22,8 @@ def build_level():
     """Return platforms and metadata for the full climb."""
     w, h = s.WORLD_WIDTH, s.WORLD_HEIGHT
     platforms = [
-        # World bounds
+        # Ground only — side edges use invisible barriers in player.clamp_to_world()
         _rect(0, h - 40, w, 40),
-        _rect(0, 0, 20, h),
-        _rect(w - 20, 0, 20, h),
         # --- THE PIT (bottom) ---
         _rect(60, 3040, 220, 20),
         _rect(340, 2960, 160, 20),

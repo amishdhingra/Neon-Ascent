@@ -17,7 +17,9 @@ Work in progress — run, jump, sprint, double jump, wall hold and wall jump.
 - **Shift** — Sprint (uses stamina — bar top-left)
 - **Hold toward a wall in mid-air** — Wall slide (character turns purple)
 - **Double jump + direction** — Hold A/D when double jumping to steer toward platforms
-- **Esc** — Quit
+- **Esc** — Quit (exits fullscreen)
+
+The game runs in **fullscreen** using your monitor's resolution.
 
 Climb through five zones: **The Pit → Neon Pipes → The Gap → The Tower → The Summit**.
 

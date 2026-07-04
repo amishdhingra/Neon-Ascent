@@ -141,12 +141,15 @@ class Player:
             self.vel_y = s.MAX_FALL_SPEED
 
     def clamp_to_world(self):
-        left_limit = s.WORLD_SIDE_MARGIN
-        right_limit = s.WORLD_WIDTH - s.WORLD_SIDE_MARGIN
-        if self.rect.left < left_limit:
-            self.rect.left = left_limit
-        if self.rect.right > right_limit:
-            self.rect.right = right_limit
+        """Invisible world edges — block movement but not wall jumps/slides."""
+        if self.rect.left < 0:
+            self.rect.left = 0
+            if self.vel_x < 0:
+                self.vel_x = 0
+        if self.rect.right > s.WORLD_WIDTH:
+            self.rect.right = s.WORLD_WIDTH
+            if self.vel_x > 0:
+                self.vel_x = 0
         if self.rect.top < 0:
             self.rect.top = 0
             if self.vel_y < 0:

@@ -1,8 +1,9 @@
-# Screen
+# Screen (defaults — updated to monitor size when the game starts)
 SCREEN_WIDTH = 960
 SCREEN_HEIGHT = 540
 FPS = 60
 TITLE = "Neon Ascent"
+FULLSCREEN = True
 
 # World (taller than the screen — camera scrolls vertically)
 WORLD_WIDTH = 960
@@ -47,4 +48,3 @@ SCREEN_TOP_WALL_MARGIN = 4
 # Starting position (world coordinates — bottom of the climb)
 PLAYER_START_X = 120
 PLAYER_START_Y = 2990
-WORLD_SIDE_MARGIN = 20

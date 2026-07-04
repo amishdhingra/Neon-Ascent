@@ -33,10 +33,19 @@ def draw_height(surface, player, font):
     surface.blit(text, (s.SCREEN_WIDTH - text.get_width() - 20, 20))
 
 
-def main():
+def setup_display():
     pygame.init()
-    screen = pygame.display.set_mode((s.SCREEN_WIDTH, s.SCREEN_HEIGHT))
+    if s.FULLSCREEN:
+        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    else:
+        screen = pygame.display.set_mode((s.SCREEN_WIDTH, s.SCREEN_HEIGHT))
+    s.SCREEN_WIDTH, s.SCREEN_HEIGHT = screen.get_size()
     pygame.display.set_caption(s.TITLE)
+    return screen
+
+
+def main():
+    screen = setup_display()
     clock = pygame.time.Clock()
     font = pygame.font.Font(None, 36)
     small_font = pygame.font.Font(None, 28)
