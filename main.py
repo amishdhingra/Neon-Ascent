@@ -169,7 +169,7 @@ def main():
                     mouse_locked = not mouse_locked
                     pygame.event.set_grab(mouse_locked)
                     pygame.mouse.set_visible(not mouse_locked)
-                elif event.key in (pygame.K_SPACE, pygame.K_w):
+                elif event.key == pygame.K_SPACE:
                     camera.request_jump()
             elif event.type == pygame.MOUSEMOTION and mouse_locked:
                 camera.process_mouse(event.rel)
@@ -204,7 +204,7 @@ def main():
         state = "WALL" if camera.wall_sliding else ("SPRINT" if camera.is_sprinting else "RUN")
         caption = (
             f"{s.TITLE}  |  {height}m  |  {progress}%  |  {state}  |  "
-            f"Space/W: jump (double in air)  |  Shift: sprint  |  Hold into wall: slide"
+            f"Space: jump (double in air)  |  Shift: sprint  |  Hold into wall: slide"
         )
         pygame.display.set_caption(caption)
         pygame.display.flip()

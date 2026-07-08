@@ -12,7 +12,7 @@ The old 2D platformer lives in `legacy_2d/` if you want to reference it.
 
 - **W / A / S / D** — Move
 - **Mouse** — Look around
-- **Space** or **W** — Jump (double jump in mid-air; steer with WASD on double jump)
+- **Space** — Jump (double jump in mid-air; steer with WASD on double jump)
 - **Shift** — Sprint (stamina bar top-left)
 - **Hold into a wall in mid-air** — Wall slide, then jump to wall jump off
 - **Tab** — Toggle mouse lock
