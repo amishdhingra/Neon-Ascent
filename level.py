@@ -1,4 +1,4 @@
-"""Dense Celeste / Silksong-style fields — packed shelves + guaranteed spine."""
+"""Celeste-style climb — choreographed segments that require every movement tool."""
 
 import random
 
@@ -24,25 +24,37 @@ ZONE_BANDS = [
     (100, "summit"),
 ]
 
-COLUMNS = (0.13, 0.27, 0.41, 0.55, 0.69, 0.83)
+# Which challenge types appear per zone (gets harder / more tools)
+ZONE_CHALLENGES = {
+    "pit": ["basic", "sprint", "double", "sprint"],
+    "neon": ["wall", "double", "wall", "sprint", "double"],
+    "gap": ["sprint", "double", "sprint", "wall_sprint", "double"],
+    "tower": ["wall", "wall_double", "double", "wall", "sprint"],
+    "summit": ["wall_double", "double", "wall", "sprint", "wall_double"],
+}
 
 
 def _sw(width, world_width):
     return max(20, int(width * world_width / BASE_WORLD_WIDTH))
 
 
-def _jump_limits(w):
+def _movement_limits(w):
+    """Reach bands per mechanic (tuned to settings.py movement values)."""
     scale = w / BASE_WORLD_WIDTH
     return {
-        "std_dx": int(195 * scale),
-        "std_up": (int(48 * scale), int(84 * scale)),
-        "hard_dx": int(240 * scale),
-        "hard_up": (int(48 * scale), int(118 * scale)),
+        "walk_dx": int(168 * scale),
+        "walk_up": (int(52 * scale), int(76 * scale)),
+        "sprint_dx": int(248 * scale),
+        "sprint_up": (int(50 * scale), int(80 * scale)),
+        "double_dx": int(268 * scale),
+        "double_up": (int(88 * scale), int(118 * scale)),
+        "wall_dx": int(210 * scale),
+        "wall_up": (int(52 * scale), int(108 * scale)),
     }
 
 
-def _can_jump(a, b, dx_lim, up_rng):
-    return abs(b.centerx - a.centerx) <= dx_lim and up_rng[0] <= a.top - b.top <= up_rng[1]
+def _reach(a, b, dx, up):
+    return abs(b.centerx - a.centerx) <= dx and up[0] <= a.top - b.top <= up[1]
 
 
 def _overlaps(platforms, rect, gap=12):
@@ -54,181 +66,202 @@ def _plat(cx, top, pw, ph, edge, w):
     return pygame.Rect(int(cx - pw // 2), int(top), int(pw), ph)
 
 
+def _wall(cx, top, height, w):
+    ww = _sw(22, w)
+    return pygame.Rect(int(cx - ww // 2), int(top), ww, int(height))
+
+
 def _in_bounds(rect, edge, w):
     return rect.left >= edge and rect.right <= w - edge and rect.top >= 0
 
 
-def _add_spine(platforms, rect, edge, w, jump, from_p):
-    if _can_jump(from_p, rect, jump["std_dx"], jump["std_up"]) is False and from_p is not rect:
+def _place(platforms, rect, edge, w):
+    if not _in_bounds(rect, edge, w) or _overlaps(platforms, rect):
         return None
-    for nudge in (0, 8, 16, -12, 24, -20, 32):
-        trial = rect.copy()
-        trial.top += nudge
-        if not _in_bounds(trial, edge, w) or _overlaps(platforms, trial):
-            continue
-        if not _can_jump(from_p, trial, jump["std_dx"], jump["std_up"]):
-            continue
-        platforms.append(trial)
-        return trial
-    return None
+    platforms.append(rect)
+    return rect
 
 
-def _bfs(start, nodes, jump):
-    seen = {id(start)}
-    stack = [start]
-    while stack:
-        cur = stack.pop()
-        for n in nodes:
-            if id(n) in seen:
-                continue
-            if _can_jump(cur, n, jump["std_dx"], jump["std_up"]):
-                seen.add(id(n))
-                stack.append(n)
-    return seen
+def _dy(rng, up):
+    return rng.randint(up[0], up[1])
 
 
-def _bridge(from_p, rng, jump, edge, w, ph, y, target_x=None):
-    lo, hi = jump["std_up"]
-    tx = target_x if target_x is not None else from_p.centerx
-    for _ in range(14):
-        top = y if y else from_p.top - rng.randint(lo, hi)
-        dx = int((tx - from_p.centerx) * rng.uniform(0.45, 1.0))
-        pw = _sw(rng.randint(90, 130), w)
-        p = _plat(from_p.centerx + dx, top, pw, ph, edge, w)
-        if _can_jump(from_p, p, jump["std_dx"], jump["std_up"]):
-            return p
-    return _plat(tx, from_p.top - lo, _sw(115, w), ph, edge, w)
+def _fits_mechanic(mechanic, a, b, m):
+    walk = _reach(a, b, m["walk_dx"], m["walk_up"])
+    sprint = _reach(a, b, m["sprint_dx"], m["sprint_up"])
+    double = _reach(a, b, m["double_dx"], m["double_up"])
+
+    if mechanic == "basic":
+        return walk
+    if mechanic == "sprint":
+        return sprint and not walk
+    if mechanic == "double":
+        return double and not sprint
+    if mechanic in ("wall", "wall_sprint", "wall_double"):
+        return True
+    return walk
 
 
-def _layer_cols(rng, style, layer_i, diff):
-    n = len(COLUMNS)
-    if layer_i % 5 == 0:
-        return list(range(n))
-    mode = rng.choice(["full", "left", "right", "wings", "center", "scatter"])
-    if mode == "full":
-        return rng.sample(range(n), rng.randint(4, n))
-    if mode == "left":
-        return [0, 1, 2, 3]
-    if mode == "right":
-        return [2, 3, 4, 5]
-    if mode == "wings":
-        return [0, 1, 4, 5]
-    if mode == "center":
-        return [1, 2, 3, 4]
-    return rng.sample(range(n), rng.randint(3, 5))
+def _seg_basic(anchor, rng, w, edge, ph, m):
+    pw = _sw(rng.randint(95, 120), w)
+    dy = _dy(rng, m["walk_up"])
+    dx = rng.randint(-m["walk_dx"] // 2, m["walk_dx"] // 2)
+    nxt = _plat(anchor.centerx + dx, anchor.top - dy, pw, ph, edge, w)
+    return [nxt], nxt
 
 
-def _shelf(y, cols, rng, w, edge, ph, diff, wide=False):
-    if wide:
-        return [_plat(w * 0.5, y, _sw(min(420, w - 80), w), ph, edge, w)]
-    out = []
-    for ci in cols:
-        pw = _sw(rng.randint(70 if diff else 78, 128), w)
-        cx = w * COLUMNS[ci] + rng.randint(-_sw(24, w), _sw(24, w))
-        out.append(_plat(cx, y + rng.randint(-8, 8), pw, ph, edge, w))
-    return out
+def _seg_sprint(anchor, rng, w, edge, ph, m):
+    pw = _sw(rng.randint(72, 92), w)
+    dy = _dy(rng, m["sprint_up"])
+    gap = rng.randint(m["walk_dx"] + _sw(24, w), m["sprint_dx"] - _sw(18, w))
+    direction = rng.choice([-1, 1])
+    nxt = _plat(anchor.centerx + direction * gap, anchor.top - dy, pw, ph, edge, w)
+    for _ in range(6):
+        if _fits_mechanic("sprint", anchor, nxt, m):
+            return [nxt], nxt
+        gap += _sw(12, w)
+        nxt = _plat(anchor.centerx + direction * gap, anchor.top - dy, pw, ph, edge, w)
+    return [nxt], nxt
 
 
-def _zone_decor(style, rng, w, edge, ph, y, shelf):
+def _seg_double(anchor, rng, w, edge, ph, m):
+    pw = _sw(rng.randint(68, 88), w)
+    kind = rng.choice(["high", "wide"])
+    if kind == "high":
+        dy = rng.randint(m["walk_up"][1] + 8, m["double_up"][1])
+        dx = rng.randint(-m["walk_dx"] // 3, m["walk_dx"] // 3)
+    else:
+        dy = _dy(rng, m["walk_up"])
+        dx = rng.choice([-1, 1]) * rng.randint(m["sprint_dx"] - _sw(20, w), m["double_dx"] - _sw(10, w))
+    nxt = _plat(anchor.centerx + dx, anchor.top - dy, pw, ph, edge, w)
+    for _ in range(8):
+        if _fits_mechanic("double", anchor, nxt, m):
+            return [nxt], nxt
+        if kind == "high":
+            dy -= 6
+        else:
+            dx = int(dx * 1.08)
+        nxt = _plat(anchor.centerx + dx, anchor.top - dy, pw, ph, edge, w)
+    return [nxt], nxt
+
+
+def _seg_wall(anchor, rng, w, edge, ph, m):
+    """Wall shaft — must wall-jump between ledges."""
+    side = rng.choice([-1, 1])
+    wall_x = anchor.centerx + side * _sw(95, w)
+    rise = _dy(rng, m["wall_up"])
+    wall_h = rise * 2 + _sw(140, w)
+    wall_top = anchor.top - _sw(40, w)
+
+    ledge1 = _plat(anchor.centerx - side * _sw(30, w), anchor.top - rise, _sw(88, w), ph, edge, w)
+    ledge2 = _plat(anchor.centerx + side * _sw(110, w), anchor.top - rise * 2, _sw(82, w), ph, edge, w)
+    wall = _wall(wall_x, wall_top, wall_h, w)
+
+    if not _reach(anchor, ledge1, m["walk_dx"], m["walk_up"]):
+        ledge1 = _plat(anchor.centerx, anchor.top - _dy(rng, m["walk_up"]), _sw(100, w), ph, edge, w)
+    if not _reach(ledge1, ledge2, m["wall_dx"], m["wall_up"]):
+        ledge2.top = ledge1.top - _dy(rng, m["wall_up"])
+
+    return [ledge1, wall, ledge2], ledge2
+
+
+def _seg_wall_sprint(anchor, rng, w, edge, ph, m):
+    """Sprint gap into a wall-jump shaft."""
+    rects, exit_p = _seg_sprint(anchor, rng, w, edge, ph, m)
+    if not rects:
+        return _seg_wall(anchor, rng, w, edge, ph, m)
+    sprint_plat = rects[0]
+    side = 1 if sprint_plat.centerx > anchor.centerx else -1
+    wall_x = sprint_plat.centerx + side * _sw(55, w)
+    rise = _dy(rng, m["wall_up"])
+    wall = _wall(wall_x, sprint_plat.top - _sw(30, w), rise + _sw(120, w), w)
+    top = _plat(sprint_plat.centerx + side * _sw(130, w), sprint_plat.top - rise, _sw(78, w), ph, edge, w)
+    return rects + [wall, top], top
+
+
+def _seg_wall_double(anchor, rng, w, edge, ph, m):
+    """Wall jump, then double jump to a small distant ledge."""
+    side = rng.choice([-1, 1])
+    wall_x = anchor.centerx + side * _sw(88, w)
+    mid_y = anchor.top - _dy(rng, m["wall_up"])
+    mid = _plat(anchor.centerx - side * _sw(20, w), mid_y, _sw(80, w), ph, edge, w)
+    wall = _wall(wall_x, mid_y - _sw(25, w), _sw(180, w), w)
+
+    far_dx = side * rng.randint(m["wall_dx"] // 2, m["double_dx"] - _sw(30, w))
+    far_dy = rng.randint(m["double_up"][0], m["double_up"][1])
+    top = _plat(mid.centerx + far_dx, mid.top - far_dy, _sw(64, w), ph, edge, w)
+
+    if not _reach(anchor, mid, m["walk_dx"], m["walk_up"]):
+        mid = _plat(anchor.centerx, anchor.top - _dy(rng, m["walk_up"]), _sw(95, w), ph, edge, w)
+    if not _fits_mechanic("double", mid, top, m):
+        top = _plat(mid.centerx + far_dx, mid.top - m["double_up"][0], _sw(64, w), ph, edge, w)
+
+    return [mid, wall, top], top
+
+
+SEGMENT_BUILDERS = {
+    "basic": _seg_basic,
+    "sprint": _seg_sprint,
+    "double": _seg_double,
+    "wall": _seg_wall,
+    "wall_sprint": _seg_wall_sprint,
+    "wall_double": _seg_wall_double,
+}
+
+
+def _side_density(anchor, rng, w, edge, ph, m, platforms, mechanic):
+    """Optional nearby platforms — harder than the main route."""
     extras = []
-    if style == "neon" and len(shelf) >= 2 and rng.random() < 0.5:
-        a, b = rng.sample(shelf, 2)
-        px = (a.centerx + b.centerx) // 2
-        extras.append(pygame.Rect(px - _sw(12, w), min(a.top, b.top) - 8, _sw(24, w), _sw(120, w)))
-    if style == "gap" and rng.random() < 0.35:
-        extras.append(_plat(w * 0.5, y - _sw(18, w), _sw(min(300, w - 100), w), ph, edge, w))
-    if style == "tower" and rng.random() < 0.4:
-        cx = w * rng.choice(COLUMNS)
-        extras.append(pygame.Rect(cx - _sw(11, w), y - _sw(20, w), _sw(22, w), _sw(150, w)))
+    for _ in range(rng.randint(1, 3)):
+        pw = _sw(rng.randint(52, 72), w)
+        cx = anchor.centerx + rng.randint(-m["sprint_dx"], m["sprint_dx"])
+        top = anchor.top - rng.randint(m["walk_up"][0], m["double_up"][1] // 2)
+        p = _plat(cx, top, pw, ph, edge, w)
+        if mechanic != "basic" and _reach(anchor, p, m["walk_dx"], m["walk_up"]):
+            continue
+        if _place(platforms, p, edge, w):
+            extras.append(p)
     return extras
 
 
-def _build_zone(spine_tip, y_top, style, rng, w, edge, ph, jump, diff, platforms):
-    lo, hi = jump["std_up"]
-    runway = 44 + lo + hi + int(24 * w / BASE_WORLD_WIDTH)
-    y = spine_tip.top - rng.randint(lo, hi - 6)
-    layer = 0
+def _build_zone(spine, y_top, style, rng, w, edge, ph, m, platforms):
+    runway = 44 + m["walk_up"][0] + m["double_up"][1] + _sw(28, w)
+    challenges = list(ZONE_CHALLENGES.get(style, ZONE_CHALLENGES["gap"]))
+    rng.shuffle(challenges)
 
-    while y > y_top + 20 and spine_tip.top > runway:
-        layer += 1
-        wide = layer % 4 == 0
-        cols = _layer_cols(rng, style, layer, diff)
-        candidates = _shelf(y, cols, rng, w, edge, ph, diff, wide=wide)
-
-        linked = [p for p in candidates if _can_jump(spine_tip, p, jump["std_dx"], jump["std_up"])]
-        if linked:
-            spine_next = linked[0]
-        else:
-            far = w * (COLUMNS[5] if spine_tip.centerx < w * 0.5 else COLUMNS[0])
-            spine_next = _bridge(spine_tip, rng, jump, edge, w, ph, y, target_x=far)
-
-        added = _add_spine(platforms, spine_next, edge, w, jump, spine_tip)
-        if not added:
-            spine_next = _bridge(spine_tip, rng, jump, edge, w, ph, y + 20, target_x=spine_tip.centerx)
-            added = _add_spine(platforms, spine_next, edge, w, jump, spine_tip)
-        if not added:
-            y -= rng.randint(lo, hi)
-            continue
-        spine_tip = added
-
-        for p in candidates:
-            if p is spine_next or p.top < runway:
-                continue
-            if not _overlaps(platforms, p) and _in_bounds(p, edge, w):
-                platforms.append(p)
-
-        if layer % 2 == 1:
-            for ci in rng.sample(list(range(len(COLUMNS))), rng.randint(1, 2)):
-                chip_y = y - rng.randint(14, 32)
-                if chip_y < runway:
-                    continue
-                chip = _plat(
-                    w * COLUMNS[ci] + rng.randint(-_sw(35, w), _sw(35, w)),
-                    chip_y,
-                    _sw(rng.randint(52, 72), w),
-                    ph,
-                    edge,
-                    w,
-                )
-                if not _overlaps(platforms, chip) and _in_bounds(chip, edge, w):
-                    platforms.append(chip)
-
-        for d in _zone_decor(style, rng, w, edge, ph, y, candidates):
-            if d.top < runway:
-                continue
-            if not _overlaps(platforms, d) and _in_bounds(d, edge, w):
-                platforms.append(d)
-
-        y -= rng.randint(max(lo, 50), hi)
-
-    return spine_tip
-
-
-def _finish_summit(spine_tip, platforms, rng, edge, w, ph, jump):
-    summit_y = 44
-    lo, hi = jump["std_up"]
-    cur = spine_tip
-
-    while cur.top > summit_y + lo + 8:
-        step = _bridge(cur, rng, jump, edge, w, ph, None, target_x=cur.centerx)
-        a = _add_spine(platforms, step, edge, w, jump, cur)
-        if not a:
+    for mechanic in challenges:
+        if spine.top <= max(y_top + 40, runway):
             break
-        cur = a
 
-    for dx in (0, 55, -55, 110, -110):
-        summit = _plat(cur.centerx + dx, summit_y, _sw(260, w), 26, edge, w)
-        if _overlaps(platforms, summit) or not _in_bounds(summit, edge, w):
-            continue
-        if _can_jump(cur, summit, jump["std_dx"], jump["std_up"]) or _can_jump(
-            cur, summit, jump["hard_dx"], jump["hard_up"]
-        ):
-            platforms.append(summit)
-            return
+        builder = SEGMENT_BUILDERS.get(mechanic, _seg_basic)
+        rects, exit_p = builder(spine, rng, w, edge, ph, m)
 
-    summit = _plat(w * 0.5, summit_y, _sw(260, w), 26, edge, w)
-    if not _overlaps(platforms, summit):
-        platforms.append(summit)
+        placed_exit = None
+        for r in rects:
+            p = _place(platforms, r, edge, w)
+            if p:
+                placed_exit = p
+
+        if placed_exit:
+            spine = placed_exit
+            _side_density(spine, rng, w, edge, ph, m, platforms, mechanic)
+
+    return spine
+
+
+def _finish_summit(spine, platforms, rng, edge, w, ph, m):
+    summit_y = 44
+    cur = spine
+
+    while cur.top > summit_y + m["walk_up"][0] + 10:
+        dy = _dy(rng, m["walk_up"])
+        step = _plat(cur.centerx, cur.top - dy, _sw(100, w), ph, edge, w)
+        if not _place(platforms, step, edge, w):
+            break
+        cur = step
+
+    summit = _plat(w * 0.5, summit_y, _sw(240, w), 26, edge, w)
+    _place(platforms, summit, edge, w)
 
 
 def generate_level(seed=None):
@@ -239,17 +272,17 @@ def generate_level(seed=None):
     w, h = s.WORLD_WIDTH, s.WORLD_HEIGHT
     edge = max(40, int(40 * w / BASE_WORLD_WIDTH))
     ph = 20
-    jump = _jump_limits(w)
+    m = _movement_limits(w)
 
     platforms = [pygame.Rect(0, h - 40, w, 40)]
-    start = _plat(w * 0.5, h - 88, _sw(320, w), ph, edge, w)
+    start = _plat(w * 0.5, h - 88, _sw(200, w), ph, edge, w)
     platforms.append(start)
     spine = start
 
-    for zi, (y_top, style) in enumerate(ZONE_BANDS):
-        spine = _build_zone(spine, y_top, style, rng, w, edge, ph, jump, zi >= 2, platforms)
+    for y_top, style in ZONE_BANDS:
+        spine = _build_zone(spine, y_top, style, rng, w, edge, ph, m, platforms)
 
-    _finish_summit(spine, platforms, rng, edge, w, ph, jump)
+    _finish_summit(spine, platforms, rng, edge, w, ph, m)
 
     return {
         "platforms": platforms,
@@ -257,7 +290,7 @@ def generate_level(seed=None):
         "world_width": w,
         "world_height": h,
         "seed": seed,
-        "start_x": start.x + 40,
+        "start_x": start.x + 28,
         "start_y": start.top - s.PLAYER_HEIGHT - 2,
     }
 

@@ -18,6 +18,8 @@ class Player:
         self.wall_sliding = False
         self.can_wall_jump = True
         self.wall_regrab_timer = 0
+        self._move_remainder_x = 0.0
+        self._move_remainder_y = 0.0
 
     def handle_input(self, keys, dt=1.0):
         moving_left = keys[pygame.K_a] or keys[pygame.K_LEFT]
@@ -164,7 +166,11 @@ class Player:
     def move_and_collide(self, platforms, dt=1.0):
         self.on_ground = False
 
-        self.rect.x += int(self.vel_x * dt)
+        self._move_remainder_x += self.vel_x * dt
+        dx = int(self._move_remainder_x)
+        self._move_remainder_x -= dx
+
+        self.rect.x += dx
         for platform in platforms:
             if self.rect.colliderect(platform):
                 if self.vel_x > 0:
@@ -172,8 +178,12 @@ class Player:
                 elif self.vel_x < 0:
                     self.rect.left = platform.right
 
+        self._move_remainder_y += self.vel_y * dt
+        dy = int(self._move_remainder_y)
+        self._move_remainder_y -= dy
+
         prev_bottom = self.rect.bottom
-        self.rect.y += int(self.vel_y * dt)
+        self.rect.y += dy
         for platform in platforms:
             if self.rect.colliderect(platform):
                 if self.vel_y > 0:
@@ -181,20 +191,23 @@ class Player:
                     if prev_bottom <= platform.top + s.LANDING_TOLERANCE:
                         self.rect.bottom = platform.top
                         self.vel_y = 0
+                        self._move_remainder_y = 0.0
                         self.on_ground = True
                 elif self.vel_y < 0:
-                    prev_top = self.rect.top - int(self.vel_y * dt)
+                    prev_top = self.rect.top - dy
                     if prev_top >= platform.bottom - s.LANDING_TOLERANCE:
                         self.rect.top = platform.bottom
                         self.vel_y = 0
+                        self._move_remainder_y = 0.0
 
-        if not self.on_ground and self.vel_y >= 0:
+        if not self.on_ground and self.vel_y >= 0 and not self.wall_sliding:
             for platform in platforms:
                 overlap_x = self.rect.right > platform.left and self.rect.left < platform.right
                 near_surface = 0 <= platform.top - self.rect.bottom <= 4
                 if overlap_x and near_surface:
                     self.rect.bottom = platform.top
                     self.vel_y = 0
+                    self._move_remainder_y = 0.0
                     self.on_ground = True
                     break
 
