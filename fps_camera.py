@@ -47,7 +47,7 @@ class FpsCamera:
         mx, my = self._accumulated_mouse
         self._accumulated_mouse = [0.0, 0.0]
         self.yaw += mx * s.MOUSE_SENSITIVITY * 0.01
-        self.pitch -= my * s.MOUSE_SENSITIVITY * 0.01
+        self.pitch += my * s.MOUSE_SENSITIVITY * 0.01
         self.pitch = max(-1.45, min(1.45, self.pitch))
 
     def request_jump(self):

@@ -1,7 +1,7 @@
 # Neon Ascent — 3D first-person prototype
 
 TITLE = "Neon Ascent"
-FULLSCREEN = False
+FULLSCREEN = True
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 FPS = 60

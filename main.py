@@ -127,13 +127,20 @@ def draw_grid():
     glEnd()
 
 
-def main():
+def setup_display():
     pygame.init()
     flags = DOUBLEBUF | OPENGL
     if s.FULLSCREEN:
-        flags |= pygame.FULLSCREEN
-    pygame.display.set_mode((s.SCREEN_WIDTH, s.SCREEN_HEIGHT), flags)
+        screen = pygame.display.set_mode((0, 0), flags | pygame.FULLSCREEN)
+    else:
+        screen = pygame.display.set_mode((s.SCREEN_WIDTH, s.SCREEN_HEIGHT), flags)
+    s.SCREEN_WIDTH, s.SCREEN_HEIGHT = screen.get_size()
     pygame.display.set_caption(s.TITLE)
+    return screen
+
+
+def main():
+    setup_display()
     clock = pygame.time.Clock()
 
     setup_gl()

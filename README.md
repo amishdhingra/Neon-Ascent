@@ -16,9 +16,9 @@ The old 2D platformer lives in `legacy_2d/` if you want to reference it.
 - **Shift** — Sprint (stamina bar top-left)
 - **Hold into a wall in mid-air** — Wall slide, then jump to wall jump off
 - **Tab** — Toggle mouse lock
-- **Esc** — Quit
+- **Esc** — Quit (exits fullscreen)
 
-Height and progress % show in the window title.
+The game runs in **fullscreen** using your monitor's resolution. Height and progress % show in the window title.
 
 ## Setup
 
