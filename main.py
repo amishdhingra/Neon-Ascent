@@ -1,101 +1,212 @@
+"""Neon Ascent — 3D first-person vertical climb."""
+
 import sys
 
 import pygame
+from pygame.locals import DOUBLEBUF, OPENGL, QUIT
+
+from OpenGL.GL import (
+    GL_COLOR_BUFFER_BIT,
+    GL_DEPTH_BUFFER_BIT,
+    GL_DEPTH_TEST,
+    GL_FOG,
+    GL_FOG_COLOR,
+    GL_FOG_DENSITY,
+    GL_FOG_END,
+    GL_FOG_MODE,
+    GL_FOG_START,
+    GL_LINES,
+    GL_MODELVIEW,
+    GL_PROJECTION,
+    GL_QUADS,
+    GL_EXP2,
+    glBegin,
+    glClear,
+    glClearColor,
+    glColor3f,
+    glEnable,
+    glEnd,
+    glFogf,
+    glFogfv,
+    glFogi,
+    glLineWidth,
+    glLoadIdentity,
+    glMatrixMode,
+    glOrtho,
+    glVertex3f,
+)
+from OpenGL.GLU import gluPerspective
 
 import settings as s
-from camera import Camera
-from level import generate_level
-from player import Player
+from fps_camera import FpsCamera
+from world3d import build_tower, draw_block
+
+SPAWN_Y = 0.3
 
 
-def draw_platforms(surface, platforms, camera):
-    for platform in platforms:
-        if camera.is_visible(platform):
-            screen_rect = camera.world_to_screen(platform)
-            pygame.draw.rect(surface, s.COLOUR_PLATFORM, screen_rect, border_radius=6)
-            pygame.draw.rect(surface, s.COLOUR_GROUND, screen_rect, width=2, border_radius=6)
+def setup_gl():
+    glEnable(GL_DEPTH_TEST)
+    glClearColor(*s.COLOUR_BG, 1.0)
+
+    glEnable(GL_FOG)
+    glFogi(GL_FOG_MODE, GL_EXP2)
+    glFogfv(GL_FOG_COLOR, (*s.COLOUR_FOG, 1.0))
+    glFogf(GL_FOG_DENSITY, 0.012)
+    glFogf(GL_FOG_START, 8.0)
+    glFogf(GL_FOG_END, 90.0)
 
 
-def draw_zones(surface, zones, camera, font):
-    for zone in zones:
-        label_y = zone["y"]
-        if not (camera.offset_y - 60 <= label_y <= camera.offset_y + s.SCREEN_HEIGHT + 60):
-            continue
-        text = font.render(zone["name"], True, s.COLOUR_ZONE_TEXT)
-        screen_x = s.SCREEN_WIDTH // 2 - text.get_width() // 2
-        screen_y = label_y - camera.offset_y
-        surface.blit(text, (screen_x, screen_y))
+def setup_projection(width, height):
+    glMatrixMode(GL_PROJECTION)
+    glLoadIdentity()
+    aspect = width / max(height, 1)
+    gluPerspective(s.FOV, aspect, s.NEAR_PLANE, s.FAR_PLANE)
+    glMatrixMode(GL_MODELVIEW)
 
 
-def draw_hud(surface, player, font, seed):
-    climbed = s.WORLD_HEIGHT - player.rect.bottom
-    height_text = font.render(f"Height: {max(0, climbed // 10)}m", True, s.COLOUR_HEIGHT_TEXT)
-    seed_text = font.render(f"Seed: {seed}", True, s.COLOUR_HEIGHT_TEXT)
-    surface.blit(height_text, (s.SCREEN_WIDTH - height_text.get_width() - 20, 20))
-    surface.blit(seed_text, (s.SCREEN_WIDTH - seed_text.get_width() - 20, 46))
+def draw_crosshair():
+    glMatrixMode(GL_PROJECTION)
+    glLoadIdentity()
+    glMatrixMode(GL_MODELVIEW)
+    glLoadIdentity()
+    glLineWidth(2.0)
+    glColor3f(0.9, 0.95, 1.0)
+    glBegin(GL_LINES)
+    glVertex3f(-0.02, 0.0, 0.0)
+    glVertex3f(0.02, 0.0, 0.0)
+    glVertex3f(0.0, -0.02, 0.0)
+    glVertex3f(0.0, 0.02, 0.0)
+    glEnd()
 
 
-def setup_display():
-    pygame.init()
-    if s.FULLSCREEN:
-        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
-    else:
-        screen = pygame.display.set_mode((s.SCREEN_WIDTH, s.SCREEN_HEIGHT))
-    s.SCREEN_WIDTH, s.SCREEN_HEIGHT = screen.get_size()
-    s.WORLD_WIDTH = s.SCREEN_WIDTH
-    pygame.display.set_caption(s.TITLE)
-    return screen
+def draw_stamina_bar(stamina):
+    """Screen-space stamina bar (top-left)."""
+    glMatrixMode(GL_PROJECTION)
+    glLoadIdentity()
+    glOrtho(0, s.SCREEN_WIDTH, s.SCREEN_HEIGHT, 0, -1, 1)
+    glMatrixMode(GL_MODELVIEW)
+    glLoadIdentity()
+
+    bar_x, bar_y = 20, 20
+    bar_w, bar_h = 180, 16
+    fill = bar_w * (stamina / s.SPRINT_STAMINA_MAX)
+
+    def rect(x, y, w, h, colour):
+        glColor3f(*colour)
+        glBegin(GL_QUADS)
+        glVertex3f(x, y, 0)
+        glVertex3f(x + w, y, 0)
+        glVertex3f(x + w, y + h, 0)
+        glVertex3f(x, y + h, 0)
+        glEnd()
+
+    rect(bar_x, bar_y, bar_w, bar_h, s.COLOUR_STAMINA_BG)
+    if fill > 0:
+        rect(bar_x, bar_y, fill, bar_h, s.COLOUR_STAMINA_FILL)
+    glColor3f(0.35, 0.35, 0.5)
+    glBegin(GL_LINES)
+    glVertex3f(bar_x, bar_y, 0)
+    glVertex3f(bar_x + bar_w, bar_y, 0)
+    glVertex3f(bar_x + bar_w, bar_y, 0)
+    glVertex3f(bar_x + bar_w, bar_y + bar_h, 0)
+    glVertex3f(bar_x + bar_w, bar_y + bar_h, 0)
+    glVertex3f(bar_x, bar_y + bar_h, 0)
+    glVertex3f(bar_x, bar_y + bar_h, 0)
+    glVertex3f(bar_x, bar_y, 0)
+    glEnd()
+
+
+def draw_grid():
+    glColor3f(0.12, 0.1, 0.22)
+    glBegin(GL_LINES)
+    for i in range(-30, 31, 2):
+        glVertex3f(i, -0.01, -30)
+        glVertex3f(i, -0.01, 30)
+        glVertex3f(-30, -0.01, i)
+        glVertex3f(30, -0.01, i)
+    glEnd()
 
 
 def main():
-    screen = setup_display()
+    pygame.init()
+    flags = DOUBLEBUF | OPENGL
+    if s.FULLSCREEN:
+        flags |= pygame.FULLSCREEN
+    pygame.display.set_mode((s.SCREEN_WIDTH, s.SCREEN_HEIGHT), flags)
+    pygame.display.set_caption(s.TITLE)
     clock = pygame.time.Clock()
-    font = pygame.font.Font(None, 36)
-    small_font = pygame.font.Font(None, 28)
 
-    level = generate_level()
-    platforms = level["platforms"]
-    zones = level["zones"]
-    map_seed = level["seed"]
-    camera = Camera(level["world_width"], level["world_height"])
-    player = Player(level["start_x"], level["start_y"])
+    setup_gl()
+    setup_projection(s.SCREEN_WIDTH, s.SCREEN_HEIGHT)
+
+    blocks, collisions, wall_solids, summit_y = build_tower(seed=42)
+    camera = FpsCamera(0, SPAWN_Y, 0)
+
+    pygame.event.set_grab(True)
+    pygame.mouse.set_visible(False)
 
     running = True
-    dt = 1.0
+    mouse_locked = True
+
     while running:
+        dt = clock.tick(s.FPS) / 1000.0
+        dt = min(dt, 0.05)
+
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
+            if event.type == QUIT:
                 running = False
-            if event.type == pygame.KEYDOWN:
+            elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     running = False
-                if event.key in (pygame.K_SPACE, pygame.K_w, pygame.K_UP):
-                    player.request_jump()
+                elif event.key == pygame.K_TAB:
+                    mouse_locked = not mouse_locked
+                    pygame.event.set_grab(mouse_locked)
+                    pygame.mouse.set_visible(not mouse_locked)
+                elif event.key in (pygame.K_SPACE, pygame.K_w):
+                    camera.request_jump()
+            elif event.type == pygame.MOUSEMOTION and mouse_locked:
+                camera.process_mouse(event.rel)
 
         keys = pygame.key.get_pressed()
-        player.handle_input(keys, dt)
-        player.update_wall_contact(platforms, keys)
-        player.apply_gravity(dt)
-        player.move_and_collide(platforms, dt)
-        player.update_wall_contact(platforms, keys)
-        player.try_jump(keys)
-        player.update_timers(dt)
-        camera.update(player.rect)
+        camera.apply_mouse()
+        camera.handle_input(keys, dt)
+        camera.update_timers(dt)
+        camera.update_wall_contact(wall_solids, keys)
+        camera.try_jump(keys)
+        camera.apply_gravity(dt)
+        camera.move_with_collision(collisions, dt)
 
-        screen.fill(s.COLOUR_BG)
-        draw_zones(screen, zones, camera, font)
-        draw_platforms(screen, platforms, camera)
-        player.draw(screen, camera)
-        player.draw_stamina_bar(screen)
-        draw_hud(screen, player, small_font, map_seed)
+        if camera.y < -15:
+            camera.x, camera.y, camera.z = 0, SPAWN_Y, 0
+            camera.vx = camera.vy = camera.vz = 0
+            camera.air_jumps_remaining = 0
 
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        setup_projection(s.SCREEN_WIDTH, s.SCREEN_HEIGHT)
+        camera.apply_gl()
+
+        draw_grid()
+        for block in blocks:
+            draw_block(block)
+
+        draw_crosshair()
+        draw_stamina_bar(camera.stamina)
+
+        height = max(0, int(camera.y))
+        progress = min(100, int(100 * camera.y / summit_y))
+        state = "WALL" if camera.wall_sliding else ("SPRINT" if camera.is_sprinting else "RUN")
+        caption = (
+            f"{s.TITLE}  |  {height}m  |  {progress}%  |  {state}  |  "
+            f"Space/W: jump (double in air)  |  Shift: sprint  |  Hold into wall: slide"
+        )
+        pygame.display.set_caption(caption)
         pygame.display.flip()
-        frame_ms = clock.tick(s.FPS)
-        dt = min(max(frame_ms, 1) / s.BASE_FRAME_MS, 2.5)
 
+    pygame.event.set_grab(False)
+    pygame.mouse.set_visible(True)
     pygame.quit()
-    sys.exit()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

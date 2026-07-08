@@ -1,25 +1,24 @@
 # Neon Ascent
 
-A punishing vertical climb through a glowing neon world. Double jump, sprint, wall jump — don't look down.
+A punishing **3D first-person** vertical climb through a glowing neon tower. Jump between floating platforms — don't look down.
 
 ## Status
 
-Work in progress — procedural vertical climb with camera, sprint, double jump, and wall jump.
+**3D first-person prototype** — pygame-ce + PyOpenGL (works on Windows ARM64).
 
-Each run generates a **new random map** (seed shown top-right).
+The old 2D platformer lives in `legacy_2d/` if you want to reference it.
 
 ## Controls
 
-- **A / D** or **arrow keys** — Move
-- **Space** or **W** — Jump (double jump in mid-air; one wall jump per airtime)
-- **Shift** — Sprint (uses stamina — bar top-left)
-- **Hold toward a wall in mid-air** — Wall slide (character turns purple)
-- **Double jump + direction** — Hold A/D when double jumping to steer toward platforms
-- **Esc** — Quit (exits fullscreen)
+- **W / A / S / D** — Move
+- **Mouse** — Look around
+- **Space** or **W** — Jump (double jump in mid-air; steer with WASD on double jump)
+- **Shift** — Sprint (stamina bar top-left)
+- **Hold into a wall in mid-air** — Wall slide, then jump to wall jump off
+- **Tab** — Toggle mouse lock
+- **Esc** — Quit
 
-The game runs in **fullscreen** using your monitor's resolution.
-
-Climb through five zones: **The Pit → Neon Pipes → The Gap → The Tower → The Summit**.
+Height and progress % show in the window title.
 
 ## Setup
 
@@ -33,7 +32,12 @@ pip install -r requirements.txt
 python main.py
 ```
 
+Or double-click `run.bat`, or press **F5** in Cursor.
+
 ## Requirements
 
-- Python 3.11+
+- Python 3.11+ (ARM64 or x64)
 - pygame-ce
+- PyOpenGL
+
+**Note:** Ursina/Panda3D need x64 Python on Windows — this stack avoids that.
