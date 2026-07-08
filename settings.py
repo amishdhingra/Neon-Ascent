@@ -46,6 +46,8 @@ WALL_SLIDE_SPEED = 1.5
 WALL_JUMP_STRENGTH = -12
 WALL_JUMP_PUSH = 9
 WALL_REGRAB_COOLDOWN = 18
+WALL_MIN_HEIGHT = 48  # only tall surfaces count as walls, not floor platforms
+LANDING_TOLERANCE = 4
 SCREEN_TOP_WALL_MARGIN = 4
 
 # Starting position (base design coords — scaled to world width at startup)

@@ -1,4 +1,4 @@
-"""Procedural level generation — structured climb sections (platformer + Getting Over It)."""
+"""Dense Celeste / Silksong-style fields — packed shelves + guaranteed spine."""
 
 import random
 
@@ -16,179 +16,219 @@ ZONES = [
     {"name": "THE SUMMIT", "y": 120},
 ]
 
+ZONE_BANDS = [
+    (2720, "pit"),
+    (1920, "neon"),
+    (1120, "gap"),
+    (520, "tower"),
+    (100, "summit"),
+]
+
+COLUMNS = (0.13, 0.27, 0.41, 0.55, 0.69, 0.83)
+
 
 def _sw(width, world_width):
     return max(20, int(width * world_width / BASE_WORLD_WIDTH))
 
 
-def _reachable(from_rect, to_rect, max_x, min_up, max_up):
-    dx = abs(to_rect.centerx - from_rect.centerx)
-    dy = from_rect.top - to_rect.top
-    return dx <= max_x and min_up <= dy <= max_up
+def _jump_limits(w):
+    scale = w / BASE_WORLD_WIDTH
+    return {
+        "std_dx": int(195 * scale),
+        "std_up": (int(48 * scale), int(84 * scale)),
+        "hard_dx": int(240 * scale),
+        "hard_up": (int(48 * scale), int(118 * scale)),
+    }
 
 
-def _overlaps(platforms, rect, gap=16):
-    padded = rect.inflate(gap, gap)
-    return any(padded.colliderect(other) for other in platforms)
+def _can_jump(a, b, dx_lim, up_rng):
+    return abs(b.centerx - a.centerx) <= dx_lim and up_rng[0] <= a.top - b.top <= up_rng[1]
 
 
-def _clamp_x(center_x, pw, edge, world_width):
-    return max(edge, min(world_width - pw - edge, int(center_x - pw / 2)))
+def _overlaps(platforms, rect, gap=12):
+    return any(rect.inflate(gap, gap).colliderect(o) for o in platforms)
 
 
-def _shift_platforms(platforms, dx, dy, edge, world_width):
-    shifted = []
-    for rect in platforms:
-        moved = rect.move(dx, dy)
-        if moved.left < edge:
-            moved.left = edge
-        if moved.right > world_width - edge:
-            moved.right = world_width - edge
-        shifted.append(moved)
-    return shifted
+def _plat(cx, top, pw, ph, edge, w):
+    cx = max(edge + pw // 2, min(w - edge - pw // 2, int(cx)))
+    return pygame.Rect(int(cx - pw // 2), int(top), int(pw), ph)
 
 
-def _add_all(platforms, new_rects, edge, world_width):
-    added = []
-    for rect in new_rects:
-        if _overlaps(platforms, rect):
+def _in_bounds(rect, edge, w):
+    return rect.left >= edge and rect.right <= w - edge and rect.top >= 0
+
+
+def _add_spine(platforms, rect, edge, w, jump, from_p):
+    if _can_jump(from_p, rect, jump["std_dx"], jump["std_up"]) is False and from_p is not rect:
+        return None
+    for nudge in (0, 8, 16, -12, 24, -20, 32):
+        trial = rect.copy()
+        trial.top += nudge
+        if not _in_bounds(trial, edge, w) or _overlaps(platforms, trial):
             continue
-        platforms.append(rect)
-        added.append(rect)
-    return added
+        if not _can_jump(from_p, trial, jump["std_dx"], jump["std_up"]):
+            continue
+        platforms.append(trial)
+        return trial
+    return None
 
 
-def _section_zigzag(rng, w, edge, top_y, height, plat_h, hard):
-    """Alternating left-right steps upward."""
-    pw = _sw(130 if not hard else 90, w)
-    steps = 4
-    rects = []
-    go_right = rng.choice([True, False])
-    for i in range(steps):
-        t = i / (steps - 1) if steps > 1 else 0
-        cx = w * (0.22 + 0.56 * t) if go_right else w * (0.78 - 0.56 * t)
-        cy = top_y + height - int((i + 1) * height / (steps + 1))
-        rects.append(pygame.Rect(_clamp_x(cx, pw, edge, w), cy, pw, plat_h))
-    return rects
+def _bfs(start, nodes, jump):
+    seen = {id(start)}
+    stack = [start]
+    while stack:
+        cur = stack.pop()
+        for n in nodes:
+            if id(n) in seen:
+                continue
+            if _can_jump(cur, n, jump["std_dx"], jump["std_up"]):
+                seen.add(id(n))
+                stack.append(n)
+    return seen
 
 
-def _section_gap_run(rng, w, edge, top_y, height, plat_h, hard):
-    """Deliberate horizontal gaps — sprint or double jump."""
-    pw = _sw(115 if not hard else 85, w)
-    gap = _sw(200 if not hard else 260, w)
-    y = top_y + height // 2
-    x0 = rng.randint(edge, w // 2 - gap // 2 - pw)
-    rects = [
-        pygame.Rect(x0, y + height // 4, pw, plat_h),
-        pygame.Rect(x0 + gap, y, pw, plat_h),
-        pygame.Rect(min(w - edge - pw, x0 + gap * 2), y - height // 5, pw, plat_h),
-    ]
-    return rects
+def _bridge(from_p, rng, jump, edge, w, ph, y, target_x=None):
+    lo, hi = jump["std_up"]
+    tx = target_x if target_x is not None else from_p.centerx
+    for _ in range(14):
+        top = y if y else from_p.top - rng.randint(lo, hi)
+        dx = int((tx - from_p.centerx) * rng.uniform(0.45, 1.0))
+        pw = _sw(rng.randint(90, 130), w)
+        p = _plat(from_p.centerx + dx, top, pw, ph, edge, w)
+        if _can_jump(from_p, p, jump["std_dx"], jump["std_up"]):
+            return p
+    return _plat(tx, from_p.top - lo, _sw(115, w), ph, edge, w)
 
 
-def _section_wall_climb(rng, w, edge, top_y, height, plat_h, hard):
-    """Vertical wall with ledges — Getting Over It style."""
-    wall_w = _sw(20, w)
-    cx = w // 2 + rng.randint(-_sw(120, w), _sw(120, w))
-    wall = pygame.Rect(cx - wall_w // 2, top_y + height // 5, wall_w, int(height * 0.75))
-    pw = _sw(120 if not hard else 95, w)
-    rects = [
-        wall,
-        pygame.Rect(cx - _sw(160, w), top_y + height - plat_h - 10, pw, plat_h),
-        pygame.Rect(cx + _sw(40, w), top_y + height // 2, pw, plat_h),
-        pygame.Rect(cx - _sw(150, w), top_y + plat_h + 20, pw, plat_h),
-    ]
-    return rects
+def _layer_cols(rng, style, layer_i, diff):
+    n = len(COLUMNS)
+    if layer_i % 5 == 0:
+        return list(range(n))
+    mode = rng.choice(["full", "left", "right", "wings", "center", "scatter"])
+    if mode == "full":
+        return rng.sample(range(n), rng.randint(4, n))
+    if mode == "left":
+        return [0, 1, 2, 3]
+    if mode == "right":
+        return [2, 3, 4, 5]
+    if mode == "wings":
+        return [0, 1, 4, 5]
+    if mode == "center":
+        return [1, 2, 3, 4]
+    return rng.sample(range(n), rng.randint(3, 5))
 
 
-def _section_rest_then_rise(rng, w, edge, top_y, height, plat_h, hard):
-    """Wide rest ledge, then a short tricky hop."""
-    wide = _sw(240 if not hard else 180, w)
-    small = _sw(100 if not hard else 75, w)
-    cx = rng.uniform(w * 0.25, w * 0.65)
-    rects = [
-        pygame.Rect(_clamp_x(cx, wide, edge, w), top_y + height - plat_h - 30, wide, plat_h),
-        pygame.Rect(_clamp_x(cx + _sw(140, w), small, edge, w), top_y + height // 3, small, plat_h),
-        pygame.Rect(_clamp_x(cx - _sw(80, w), small, edge, w), top_y + plat_h + 10, small, plat_h),
-    ]
-    return rects
+def _shelf(y, cols, rng, w, edge, ph, diff, wide=False):
+    if wide:
+        return [_plat(w * 0.5, y, _sw(min(420, w - 80), w), ph, edge, w)]
+    out = []
+    for ci in cols:
+        pw = _sw(rng.randint(70 if diff else 78, 128), w)
+        cx = w * COLUMNS[ci] + rng.randint(-_sw(24, w), _sw(24, w))
+        out.append(_plat(cx, y + rng.randint(-8, 8), pw, ph, edge, w))
+    return out
 
 
-def _section_fork(rng, w, edge, top_y, height, plat_h, hard):
-    """Easier main line + optional harder side branch (may dead-end)."""
-    pw = _sw(125, w)
-    small = _sw(90, w)
-    entry_y = top_y + height - plat_h - 20
-    main_x = w * 0.35
-    rects = [
-        pygame.Rect(_clamp_x(main_x, pw, edge, w), entry_y, pw, plat_h),
-        pygame.Rect(_clamp_x(main_x + _sw(100, w), pw, edge, w), top_y + height // 2, pw, plat_h),
-        pygame.Rect(_clamp_x(main_x + _sw(60, w), pw, edge, w), top_y + plat_h + 15, pw, plat_h),
-    ]
-    # Harder side branch — tempting but sometimes a dead end
-    if rng.random() < 0.55:
-        branch_x = w * 0.72
-        rects.append(pygame.Rect(_clamp_x(branch_x, small, edge, w), entry_y - height // 6, small, plat_h))
-        if rng.random() < 0.45:
-            rects.append(pygame.Rect(_clamp_x(branch_x + _sw(30, w), small, edge, w), top_y + height // 3, small, plat_h))
-        # else: branch dead-ends — player must backtrack
-    return rects
+def _zone_decor(style, rng, w, edge, ph, y, shelf):
+    extras = []
+    if style == "neon" and len(shelf) >= 2 and rng.random() < 0.5:
+        a, b = rng.sample(shelf, 2)
+        px = (a.centerx + b.centerx) // 2
+        extras.append(pygame.Rect(px - _sw(12, w), min(a.top, b.top) - 8, _sw(24, w), _sw(120, w)))
+    if style == "gap" and rng.random() < 0.35:
+        extras.append(_plat(w * 0.5, y - _sw(18, w), _sw(min(300, w - 100), w), ph, edge, w))
+    if style == "tower" and rng.random() < 0.4:
+        cx = w * rng.choice(COLUMNS)
+        extras.append(pygame.Rect(cx - _sw(11, w), y - _sw(20, w), _sw(22, w), _sw(150, w)))
+    return extras
 
 
-def _section_staircase(rng, w, edge, top_y, height, plat_h, hard):
-    """Steady diagonal climb across the screen."""
-    pw = _sw(135 if not hard else 100, w)
-    steps = 5
-    rects = []
-    for i in range(steps):
-        t = i / (steps - 1) if steps > 1 else 0
-        cx = w * (0.15 + 0.7 * t)
-        cy = top_y + height - int((i + 1) * height / (steps + 0.5))
-        rects.append(pygame.Rect(_clamp_x(cx, pw, edge, w), cy, pw, plat_h))
-    return rects
+def _build_zone(spine_tip, y_top, style, rng, w, edge, ph, jump, diff, platforms):
+    lo, hi = jump["std_up"]
+    runway = 44 + lo + hi + int(24 * w / BASE_WORLD_WIDTH)
+    y = spine_tip.top - rng.randint(lo, hi - 6)
+    layer = 0
+
+    while y > y_top + 20 and spine_tip.top > runway:
+        layer += 1
+        wide = layer % 4 == 0
+        cols = _layer_cols(rng, style, layer, diff)
+        candidates = _shelf(y, cols, rng, w, edge, ph, diff, wide=wide)
+
+        linked = [p for p in candidates if _can_jump(spine_tip, p, jump["std_dx"], jump["std_up"])]
+        if linked:
+            spine_next = linked[0]
+        else:
+            far = w * (COLUMNS[5] if spine_tip.centerx < w * 0.5 else COLUMNS[0])
+            spine_next = _bridge(spine_tip, rng, jump, edge, w, ph, y, target_x=far)
+
+        added = _add_spine(platforms, spine_next, edge, w, jump, spine_tip)
+        if not added:
+            spine_next = _bridge(spine_tip, rng, jump, edge, w, ph, y + 20, target_x=spine_tip.centerx)
+            added = _add_spine(platforms, spine_next, edge, w, jump, spine_tip)
+        if not added:
+            y -= rng.randint(lo, hi)
+            continue
+        spine_tip = added
+
+        for p in candidates:
+            if p is spine_next or p.top < runway:
+                continue
+            if not _overlaps(platforms, p) and _in_bounds(p, edge, w):
+                platforms.append(p)
+
+        if layer % 2 == 1:
+            for ci in rng.sample(list(range(len(COLUMNS))), rng.randint(1, 2)):
+                chip_y = y - rng.randint(14, 32)
+                if chip_y < runway:
+                    continue
+                chip = _plat(
+                    w * COLUMNS[ci] + rng.randint(-_sw(35, w), _sw(35, w)),
+                    chip_y,
+                    _sw(rng.randint(52, 72), w),
+                    ph,
+                    edge,
+                    w,
+                )
+                if not _overlaps(platforms, chip) and _in_bounds(chip, edge, w):
+                    platforms.append(chip)
+
+        for d in _zone_decor(style, rng, w, edge, ph, y, candidates):
+            if d.top < runway:
+                continue
+            if not _overlaps(platforms, d) and _in_bounds(d, edge, w):
+                platforms.append(d)
+
+        y -= rng.randint(max(lo, 50), hi)
+
+    return spine_tip
 
 
-SECTION_BUILDERS = [
-    _section_zigzag,
-    _section_gap_run,
-    _section_wall_climb,
-    _section_rest_then_rise,
-    _section_fork,
-    _section_staircase,
-]
+def _finish_summit(spine_tip, platforms, rng, edge, w, ph, jump):
+    summit_y = 44
+    lo, hi = jump["std_up"]
+    cur = spine_tip
 
+    while cur.top > summit_y + lo + 8:
+        step = _bridge(cur, rng, jump, edge, w, ph, None, target_x=cur.centerx)
+        a = _add_spine(platforms, step, edge, w, jump, cur)
+        if not a:
+            break
+        cur = a
 
-def _entry_platform_index(section_rects):
-    for i, rect in enumerate(section_rects):
-        if rect.width >= rect.height * 2:
-            return i
-    return 0
+    for dx in (0, 55, -55, 110, -110):
+        summit = _plat(cur.centerx + dx, summit_y, _sw(260, w), 26, edge, w)
+        if _overlaps(platforms, summit) or not _in_bounds(summit, edge, w):
+            continue
+        if _can_jump(cur, summit, jump["std_dx"], jump["std_up"]) or _can_jump(
+            cur, summit, jump["hard_dx"], jump["hard_up"]
+        ):
+            platforms.append(summit)
+            return
 
-
-def _exit_platform(section_rects):
-    ledges = [r for r in section_rects if r.width >= r.height * 2]
-    if ledges:
-        return min(ledges, key=lambda r: r.top)
-    return min(section_rects, key=lambda r: r.top)
-
-
-def _align_section_to_entry(section_rects, anchor, rng, max_x, min_up, max_up):
-    """Move a section so its entry platform is reachable from the previous anchor."""
-    if not section_rects:
-        return section_rects
-
-    entry_index = _entry_platform_index(section_rects)
-    entry = section_rects[entry_index]
-    target_dy = -rng.randint(min_up, max_up)
-    dx = anchor.centerx - entry.centerx
-    dy = anchor.top + target_dy - entry.top
-
-    aligned = [r.move(dx, dy) for r in section_rects]
-
-    if not _reachable(anchor, aligned[entry_index], max_x, min_up, max_up + 25):
-        aligned = [r.move(dx, dy - 20) for r in aligned]
-
-    return aligned
+    summit = _plat(w * 0.5, summit_y, _sw(260, w), 26, edge, w)
+    if not _overlaps(platforms, summit):
+        platforms.append(summit)
 
 
 def generate_level(seed=None):
@@ -198,67 +238,18 @@ def generate_level(seed=None):
 
     w, h = s.WORLD_WIDTH, s.WORLD_HEIGHT
     edge = max(40, int(40 * w / BASE_WORLD_WIDTH))
-    plat_h = 20
-    max_x = int(210 * w / BASE_WORLD_WIDTH)
-    min_up = int(55 * w / BASE_WORLD_WIDTH)
-    max_up = int(105 * w / BASE_WORLD_WIDTH)
+    ph = 20
+    jump = _jump_limits(w)
 
     platforms = [pygame.Rect(0, h - 40, w, 40)]
-
-    start_w = _sw(220, w)
-    start = pygame.Rect(_clamp_x(w * 0.2, start_w, edge, w), h - 88, start_w, plat_h)
+    start = _plat(w * 0.5, h - 88, _sw(320, w), ph, edge, w)
     platforms.append(start)
-    anchor = start
+    spine = start
 
-    section_top = start.top - 30
-    section_index = 0
+    for zi, (y_top, style) in enumerate(ZONE_BANDS):
+        spine = _build_zone(spine, y_top, style, rng, w, edge, ph, jump, zi >= 2, platforms)
 
-    while section_top > 220:
-        section_height = rng.randint(int(220 * w / BASE_WORLD_WIDTH), int(320 * w / BASE_WORLD_WIDTH))
-        top_y = section_top - section_height
-        hard = section_index > 2 and rng.random() < 0.35 + section_index * 0.02
-
-        builder = rng.choice(SECTION_BUILDERS)
-        section_rects = builder(rng, w, edge, top_y, section_height, plat_h, hard)
-
-        entry_index = _entry_platform_index(section_rects)
-        aligned = _align_section_to_entry(section_rects, anchor, rng, max_x, min_up, max_up)
-
-        added = _add_all(platforms, aligned, edge, w)
-        if not added:
-            # Fallback: simple step up from anchor
-            pw = _sw(140, w)
-            fallback = pygame.Rect(
-                _clamp_x(anchor.centerx, pw, edge, w),
-                anchor.top - rng.randint(min_up, max_up),
-                pw,
-                plat_h,
-            )
-            if not _overlaps(platforms, fallback):
-                platforms.append(fallback)
-                added = [fallback]
-
-        if added:
-            anchor = _exit_platform(added)
-
-        section_top = top_y - rng.randint(20, 50)
-        section_index += 1
-
-    summit_w = _sw(260, w)
-    approach_w = _sw(150, w)
-    approach = pygame.Rect(
-        _clamp_x(anchor.centerx * 0.5 + w * 0.25, approach_w, edge, w),
-        max(90, anchor.top - rng.randint(min_up, max_up)),
-        approach_w,
-        plat_h,
-    )
-    if not _overlaps(platforms, approach):
-        platforms.append(approach)
-        anchor = approach
-
-    summit = pygame.Rect(w // 2 - summit_w // 2, 44, summit_w, 26)
-    if not _overlaps(platforms, summit):
-        platforms.append(summit)
+    _finish_summit(spine, platforms, rng, edge, w, ph, jump)
 
     return {
         "platforms": platforms,
@@ -266,7 +257,7 @@ def generate_level(seed=None):
         "world_width": w,
         "world_height": h,
         "seed": seed,
-        "start_x": start.x + 24,
+        "start_x": start.x + 40,
         "start_y": start.top - s.PLAYER_HEIGHT - 2,
     }
 

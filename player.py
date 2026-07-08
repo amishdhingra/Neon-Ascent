@@ -79,6 +79,8 @@ class Player:
             probe.right += 2
 
         for platform in platforms:
+            if platform.height < s.WALL_MIN_HEIGHT:
+                continue
             if probe.colliderect(platform):
                 if self.rect.bottom > platform.top + 10:
                     return True
@@ -170,16 +172,21 @@ class Player:
                 elif self.vel_x < 0:
                     self.rect.left = platform.right
 
+        prev_bottom = self.rect.bottom
         self.rect.y += int(self.vel_y * dt)
         for platform in platforms:
             if self.rect.colliderect(platform):
                 if self.vel_y > 0:
-                    self.rect.bottom = platform.top
-                    self.vel_y = 0
-                    self.on_ground = True
+                    # Only land on a top surface — not when sliding past a wall face
+                    if prev_bottom <= platform.top + s.LANDING_TOLERANCE:
+                        self.rect.bottom = platform.top
+                        self.vel_y = 0
+                        self.on_ground = True
                 elif self.vel_y < 0:
-                    self.rect.top = platform.bottom
-                    self.vel_y = 0
+                    prev_top = self.rect.top - int(self.vel_y * dt)
+                    if prev_top >= platform.bottom - s.LANDING_TOLERANCE:
+                        self.rect.top = platform.bottom
+                        self.vel_y = 0
 
         if not self.on_ground and self.vel_y >= 0:
             for platform in platforms:
