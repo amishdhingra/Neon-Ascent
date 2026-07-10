@@ -1,24 +1,27 @@
-"""Neon course — hard choreographed segments, each requiring specific movement tools."""
+"""Procedural neon course — Peak-style random layouts, always hard."""
 
 import random
 
 import settings as s
 
-# Reach bands tuned to settings.py (metres)
-REACH = {
-    "walk_h": 4.5,
-    "sprint_h": (8.5, 10.5),
-    "double_h": (11.0, 13.5),
-    "wall_h": (7.5, 10.5),
+# Difficulty floor: gaps tuned so walk jump never suffices after intro
+HARD = {
+    "sprint": {"fwd": (8.5, 10.5), "lat": (3.0, 7.5), "rise": (0.2, 1.4), "pad": (2.0, 2.6)},
+    "double": {"fwd": (10.5, 13.5), "lat": (4.0, 8.5), "rise": (1.0, 2.6), "pad": (2.0, 2.4)},
+    "wall": {"fwd": (6.5, 9.5), "lat": (4.0, 7.0), "rise": (0.6, 2.2), "pad": (2.0, 2.5)},
+    "wall_sprint": {"fwd": (8.5, 11.5), "lat": (4.5, 8.0), "rise": (0.8, 2.0), "pad": (2.0, 2.4)},
+    "wall_double": {"fwd": (10.0, 13.0), "lat": (5.0, 9.0), "rise": (1.2, 2.8), "pad": (2.0, 2.3)},
 }
 
-ZONES = [
-    {"name": "THE PIT", "z_start": 72},
-    {"name": "NEON PIPES", "z_start": 145},
-    {"name": "THE GAP", "z_start": 228},
-    {"name": "THE TOWER", "z_start": 318},
-    {"name": "THE SUMMIT", "z_start": 405},
+ZONE_ORDER = [
+    ("THE PIT", 5, ("sprint_gap", "zigzag_sprint", "wall_chain", "double_arc", "combo_sprint")),
+    ("NEON PIPES", 6, ("pipe_swing", "wall_chain", "sprint_gap", "wall_alley", "double_arc", "combo_wall")),
+    ("THE GAP", 7, ("gap_marathon", "sprint_gap", "double_arc", "sprint_gap", "wall_sprint", "double_arc", "combo_double")),
+    ("THE TOWER", 6, ("wall_alley", "switchback", "wall_chain", "climb_burst", "wall_alley", "combo_wall")),
+    ("THE SUMMIT", 5, ("combo_wall", "gap_marathon", "wall_sprint", "double_arc", "final_gauntlet")),
 ]
+
+_GENERATED_ZONES = [{"name": "SHORE", "z_start": 0}]
 
 
 def _box(x, y, z, w, h, d):
@@ -55,8 +58,146 @@ def _plat(blocks, x, y, z, w, d):
     return x, _top_y(blocks[-1]), z
 
 
-def _wall(blocks, x, y, z, h=10.0, w=0.55, d=9.0):
+def _wall(blocks, x, y, z, h=10.0, w=0.55, d=8.0):
     blocks.append(_surf_wall(x, y, z, w, h, d))
+
+
+def _pad_size(rng, mechanic):
+    pw = rng.uniform(*HARD[mechanic]["pad"])
+    pd = pw * rng.uniform(0.85, 1.15)
+    return pw, pd
+
+
+def _step(blocks, cx, cy, cz, rng, mechanic, lat_mul=1.0, rise_mul=1.0, wall=False, wall_side=None):
+    spec = HARD[mechanic]
+    fwd = rng.uniform(*spec["fwd"])
+    lat = rng.choice([-1, 1]) * rng.uniform(*spec["lat"]) * lat_mul
+    rise = rng.uniform(*spec["rise"]) * rise_mul
+    w, d = _pad_size(rng, mechanic)
+    nx, ny, nz = cx + lat, cy + rise, cz + fwd
+    if wall:
+        side = wall_side if wall_side else (-1 if lat >= 0 else 1)
+        _wall(blocks, (cx + nx) * 0.5 + side * 3.0, cy + rise * 0.5 + 2.0, (cz + nz) * 0.5, h=rng.uniform(9, 12), d=rng.uniform(7, 10))
+    return _plat(blocks, nx, ny, nz, w, d)
+
+
+# --- Segment builders (each returns new cx, cy, cz) ---
+
+
+def _seg_sprint_gap(blocks, cx, cy, cz, rng):
+    return _step(blocks, cx, cy, cz, rng, "sprint", wall=rng.random() < 0.35)
+
+
+def _seg_double_arc(blocks, cx, cy, cz, rng):
+    cx, cy, cz = _step(blocks, cx, cy, cz, rng, "double")
+    side = rng.choice([-1, 1])
+    return _step(blocks, cx, cy, cz, rng, "double", lat_mul=side, rise_mul=rng.uniform(0.6, 1.0))
+
+
+def _seg_wall_chain(blocks, cx, cy, cz, rng):
+    mech = rng.choice(["wall", "wall_sprint", "wall_double"])
+    return _step(blocks, cx, cy, cz, rng, mech, wall=True)
+
+
+def _seg_wall_sprint(blocks, cx, cy, cz, rng):
+    """Wall surf into a sprint-only gap — no walk jump."""
+    return _step(blocks, cx, cy, cz, rng, "wall_sprint", wall=True)
+
+
+def _seg_wall_alley(blocks, cx, cy, cz, rng):
+    tz = cz + rng.uniform(8.0, 11.0)
+    off = rng.uniform(3.0, 4.5)
+    rise = rng.uniform(1.0, 2.5)
+    _wall(blocks, cx - off, cy + rise + 1.0, tz - 2.0, h=rng.uniform(11, 14), d=rng.uniform(9, 12))
+    _wall(blocks, cx + off, cy + rise + 1.0, tz - 2.0, h=rng.uniform(11, 14), d=rng.uniform(9, 12))
+    w, d = _pad_size(rng, "wall_sprint")
+    return _plat(blocks, cx + rng.uniform(-1.5, 1.5), cy + rise, tz, w, d)
+
+
+def _seg_zigzag_sprint(blocks, cx, cy, cz, rng):
+    side = 1
+    for _ in range(rng.randint(3, 5)):
+        cx, cy, cz = _step(blocks, cx, cy, cz, rng, "sprint", lat_mul=side * rng.uniform(0.8, 1.2), rise_mul=rng.uniform(0.2, 0.8))
+        side *= -1
+    return cx, cy, cz
+
+
+def _seg_pipe_swing(blocks, cx, cy, cz, rng):
+    """Neon pipes — big lateral swings, mostly flat height."""
+    base = cy
+    side = rng.choice([-1, 1])
+    for i in range(rng.randint(4, 6)):
+        lat = side * rng.uniform(5.5, 8.0)
+        fwd = rng.uniform(4.5, 7.0)
+        w, d = _pad_size(rng, "sprint")
+        cx, cy, cz = _plat(blocks, cx + lat, base + rng.uniform(-0.2, 0.6), cz + fwd, w, d)
+        if i % 2 == 0:
+            _wall(blocks, cx - side * 2.8, base + 3.0, cz - 1.0, h=rng.uniform(8, 11), d=rng.uniform(6, 9))
+        side *= -1
+    return cx, cy, cz
+
+
+def _seg_gap_marathon(blocks, cx, cy, cz, rng):
+    """Tiny pads, sprint-only chain."""
+    for _ in range(rng.randint(5, 8)):
+        cx, cy, cz = _step(blocks, cx, cy, cz, rng, "sprint", lat_mul=rng.uniform(0.5, 1.2), rise_mul=rng.uniform(0.2, 1.0))
+    return cx, cy, cz
+
+
+def _seg_switchback(blocks, cx, cy, cz, rng):
+    """Go sideways then back — not a straight ladder."""
+    cx, cy, cz = _step(blocks, cx, cy, cz, rng, "wall_sprint", wall=True, wall_side=1)
+    cx, cy, cz = _plat(blocks, cx - rng.uniform(8.0, 11.0), cy + rng.uniform(-0.8, 0.5), cz + rng.uniform(4.0, 7.0), 2.3, 2.6)
+    cx, cy, cz = _step(blocks, cx, cy, cz, rng, "double", lat_mul=1.0)
+    return cx, cy, cz
+
+
+def _seg_climb_burst(blocks, cx, cy, cz, rng):
+    """Short vertical burst then lateral escape."""
+    for _ in range(2):
+        cx, cy, cz = _step(blocks, cx, cy, cz, rng, "double", lat_mul=0.3, rise_mul=1.2)
+    cx, cy, cz = _step(blocks, cx, cy, cz, rng, "wall_sprint", wall=True)
+    return cx, cy, cz
+
+
+def _seg_combo_sprint(blocks, cx, cy, cz, rng):
+    cx, cy, cz = _step(blocks, cx, cy, cz, rng, "sprint")
+    return _step(blocks, cx, cy, cz, rng, "double", rise_mul=0.8)
+
+
+def _seg_combo_wall(blocks, cx, cy, cz, rng):
+    cx, cy, cz = _seg_wall_chain(blocks, cx, cy, cz, rng)
+    return _step(blocks, cx, cy, cz, rng, "double")
+
+
+def _seg_combo_double(blocks, cx, cy, cz, rng):
+    cx, cy, cz = _step(blocks, cx, cy, cz, rng, "double")
+    return _seg_wall_chain(blocks, cx, cy, cz, rng)
+
+
+def _seg_final_gauntlet(blocks, cx, cy, cz, rng):
+    cx, cy, cz = _seg_sprint_gap(blocks, cx, cy, cz, rng)
+    cx, cy, cz = _seg_wall_alley(blocks, cx, cy, cz, rng)
+    cx, cy, cz = _step(blocks, cx, cy, cz, rng, "wall_double", wall=True)
+    return _step(blocks, cx, cy, cz, rng, "double")
+
+
+SEGMENTS = {
+    "sprint_gap": _seg_sprint_gap,
+    "double_arc": _seg_double_arc,
+    "wall_chain": _seg_wall_chain,
+    "wall_sprint": _seg_wall_sprint,
+    "wall_alley": _seg_wall_alley,
+    "zigzag_sprint": _seg_zigzag_sprint,
+    "pipe_swing": _seg_pipe_swing,
+    "gap_marathon": _seg_gap_marathon,
+    "switchback": _seg_switchback,
+    "climb_burst": _seg_climb_burst,
+    "combo_sprint": _seg_combo_sprint,
+    "combo_wall": _seg_combo_wall,
+    "combo_double": _seg_combo_double,
+    "final_gauntlet": _seg_final_gauntlet,
+}
 
 
 def _build_intro(blocks):
@@ -64,7 +205,6 @@ def _build_intro(blocks):
     cx, cy, cz = 0.0, 0.3, 4.0
     for ix, iy, iz, iw, id_ in [
         (0.0, 0.9, 22.0, 5.5, 5.5),
-        (0.0, 0.9, 30.0, 5.0, 5.0),
         (0.0, 1.5, 50.0, 4.5, 4.5),
         (2.0, 2.0, 60.0, 4.0, 4.5),
     ]:
@@ -73,128 +213,55 @@ def _build_intro(blocks):
     return cx, cy, cz
 
 
-def _seg_sprint(blocks, cx, cy, cz, tx, ty, tz, w=2.4, d=2.8):
-    """Gap requires sprint jump — pad too far for walk."""
-    _wall(blocks, (cx + tx) * 0.5 - 4.0, cy + 1.5, (cz + tz) * 0.5, h=8.0, d=6.0)
-    return _plat(blocks, tx, ty, tz, w, d)
+def _pick_zone_segments(rng, count, pool):
+    """Peak-style: different segment mix every run, same difficulty floor."""
+    pool = list(pool)
+    rng.shuffle(pool)
+    count = max(4, count + rng.choice([-1, 0, 0, 1]))
+    if count <= len(pool):
+        picks = rng.sample(pool, count)
+    else:
+        picks = [rng.choice(pool) for _ in range(count)]
+    rng.shuffle(picks)
+    return picks
 
 
-def _seg_double(blocks, cx, cy, cz, tx, ty, tz, w=2.3, d=2.6):
-    """Gap requires double jump."""
-    return _plat(blocks, tx, ty, tz, w, d)
-
-
-def _seg_wall_chain(blocks, cx, cy, cz, tx, ty, tz, wall_side, w=2.4, d=2.6):
-    """Wall beside gap — surf, wall jump, often double jump to land."""
-    mid_z = (cz + tz) * 0.5
-    _wall(blocks, cx + wall_side * 3.2, cy + 2.5, mid_z, h=11.0, d=8.0)
-    return _plat(blocks, tx, ty, tz, w, d)
-
-
-def _seg_wall_alley(blocks, cx, cy, cz, tz, wall_x_off=3.5):
-    """Two walls — must surf between them to reach pad ahead."""
-    _wall(blocks, cx - wall_x_off, cy + 3.0, tz - 2.0, h=12.0, d=10.0)
-    _wall(blocks, cx + wall_x_off, cy + 3.0, tz - 2.0, h=12.0, d=10.0)
-    return _plat(blocks, cx, cy + 1.5, tz, 2.5, 3.0)
-
-
-def _build_pit(blocks, cx, cy, cz):
-    """Flat shelf run → sprint → double corner (not a ladder)."""
-    cx, cy, cz = _plat(blocks, cx, cy, cz + 8.0, 5.0, 6.0)
-    cx, cy, cz = _plat(blocks, cx - 5.0, cy, cz + 6.0, 4.5, 5.0)
-    cx, cy, cz = _seg_sprint(blocks, cx, cy, cz, cx + 6.0, cy + 0.4, cz + 10.0)
-    cx, cy, cz = _seg_double(blocks, cx, cy, cz, cx - 4.0, cy + 2.2, cz + 12.5)
-    cx, cy, cz = _plat(blocks, cx + 8.0, cy, cz + 5.0, 4.0, 4.5)
-    cx, cy, cz = _seg_wall_chain(blocks, cx, cy, cz, cx, cy + 1.8, cz + 9.0, wall_side=1)
-    return cx, cy, cz
-
-
-def _build_neon(blocks, cx, cy, cz, rng):
-    """Pipe corridor — same height, huge lateral swings, wall jumps between pipes."""
-    base_y = cy
-    cx, cy, cz = _plat(blocks, cx - 7.0, base_y, cz + 6.0, 2.6, 3.0)
-    cx, cy, cz = _seg_wall_chain(blocks, cx, cy, cz, cx + 7.0, base_y + 0.2, cz + 5.5, wall_side=-1, w=2.4, d=2.8)
-    cx, cy, cz = _seg_sprint(blocks, cx, cy, cz, cx - 6.5, base_y, cz + 10.0, w=2.3, d=2.6)
-    cx, cy, cz = _seg_wall_chain(blocks, cx, cy, cz, cx + 7.5, base_y + 0.5, cz + 8.0, wall_side=1)
-    cx, cy, cz = _seg_double(blocks, cx, cy, cz, cx - 5.0, base_y + 2.0, cz + 11.0)
-    _wall(blocks, cx + 3.5, base_y + 2.5, cz + 5.0, h=10.0, d=12.0)
-    cx, cy, cz = _seg_wall_chain(blocks, cx, cy, cz, cx + 6.0, base_y + 1.0, cz + 10.5, wall_side=-1, w=2.2, d=2.5)
-    cx, cy, cz = _seg_sprint(blocks, cx, cy, cz, cx, base_y + 0.3, cz + 12.0, w=2.5, d=3.0)
-    return cx, cy, cz
-
-
-def _build_gap(blocks, cx, cy, cz):
-    """Sprint marathon on tiny pads — no safe wide shelves."""
-    pads = [
-        (0, 10.0, 0.3, 2.2, 2.5),
-        (-4, 10.5, 0.5, 2.1, 2.4),
-        (4.5, 11.0, 0.8, 2.0, 2.3),
-        (-2, 10.0, 1.2, 2.2, 2.5),
-        (3, 12.0, 0.6, 2.1, 2.4),
-        (0, 11.5, 1.5, 2.0, 2.3),
-        (-5, 12.5, 1.0, 2.1, 2.4),
-    ]
-    for lat, fwd, rise, w, d in pads:
-        cx, cy, cz = _plat(blocks, cx + lat, cy + rise, cz + fwd, w, d)
-    cx, cy, cz = _seg_double(blocks, cx, cy, cz, cx + 5.0, cy + 2.5, cz + 13.0, w=2.2, d=2.5)
-    cx, cy, cz = _seg_sprint(blocks, cx, cy, cz, cx - 6.0, cy + 0.5, cz + 11.0, w=2.1, d=2.4)
-    return cx, cy, cz
-
-
-def _build_tower(blocks, cx, cy, cz):
-    """Wall alley climb + switchback — surf/jump chains, not straight up."""
-    cx, cy, cz = _seg_wall_alley(blocks, cx, cy, cz, cz + 10.0)
-    cx, cy, cz = _seg_wall_chain(blocks, cx, cy, cz, cx + 8.0, cy + 2.5, cz + 9.0, wall_side=-1)
-    cx, cy, cz = _seg_double(blocks, cx, cy, cz, cx - 3.0, cy + 4.0, cz + 11.0)
-    _wall(blocks, cx - 4.0, cy + 5.0, cz + 4.0, h=13.0, d=10.0)
-    _wall(blocks, cx + 4.0, cy + 5.0, cz + 4.0, h=13.0, d=10.0)
-    cx, cy, cz = _plat(blocks, cx, cy + 3.0, cz + 12.0, 2.3, 2.6)
-    cx, cy, cz = _plat(blocks, cx - 9.0, cy + 1.0, cz + 8.0, 2.4, 2.8)
-    cx, cy, cz = _seg_wall_chain(blocks, cx, cy, cz, cx + 10.0, cy + 3.5, cz + 10.0, wall_side=1, w=2.2, d=2.5)
-    cx, cy, cz = _seg_sprint(blocks, cx, cy, cz, cx - 2.0, cy + 5.0, cz + 12.0, w=2.1, d=2.4)
-    return cx, cy, cz
-
-
-def _build_summit(blocks, cx, cy, cz):
-    """Final exam — every tool in one chained route."""
-    cx, cy, cz = _seg_sprint(blocks, cx, cy, cz, cx + 7.0, cy + 1.0, cz + 10.0, w=2.0, d=2.3)
-    cx, cy, cz = _seg_wall_chain(blocks, cx, cy, cz, cx - 5.0, cy + 2.5, cz + 9.0, wall_side=1, w=2.1, d=2.4)
-    cx, cy, cz = _seg_double(blocks, cx, cy, cz, cx + 6.0, cy + 4.5, cz + 12.0, w=2.0, d=2.3)
-    cx, cy, cz = _seg_wall_alley(blocks, cx, cy, cz, cz + 11.0, wall_x_off=3.0)
-    cx, cy, cz = _seg_wall_chain(blocks, cx, cy, cz, cx - 8.0, cy + 3.0, cz + 10.0, wall_side=-1, w=2.0, d=2.3)
-    cx, cy, cz = _seg_sprint(blocks, cx, cy, cz, cx + 4.0, cy + 5.5, cz + 13.0, w=2.0, d=2.3)
-    cx, cy, cz = _seg_double(blocks, cx, cy, cz, cx - 3.0, cy + 7.0, cz + 11.0, w=2.1, d=2.4)
+def _build_zone(blocks, cx, cy, cz, rng, zone_name, count, pool):
+    global _GENERATED_ZONES
+    _GENERATED_ZONES.append({"name": zone_name, "z_start": cz})
+    for key in _pick_zone_segments(rng, count, pool):
+        cx, cy, cz = SEGMENTS[key](blocks, cx, cy, cz, rng)
     return cx, cy, cz
 
 
 def get_zone_name(z_pos):
-    name = ZONES[0]["name"]
-    for zone in ZONES:
+    name = _GENERATED_ZONES[0]["name"]
+    for zone in _GENERATED_ZONES:
         if z_pos >= zone["z_start"]:
             name = zone["name"]
     return name
 
 
 def build_tower(seed=None):
+    global _GENERATED_ZONES
     if seed is None:
         seed = random.randrange(1_000_000)
     rng = random.Random(seed)
+    _GENERATED_ZONES = [{"name": "SHORE", "z_start": 0}]
     blocks = []
 
     cx, cy, cz = _build_intro(blocks)
-    cx, cy, cz = _build_pit(blocks, cx, cy, cz)
-    cx, cy, cz = _build_neon(blocks, cx, cy, cz, rng)
-    cx, cy, cz = _build_gap(blocks, cx, cy, cz)
-    cx, cy, cz = _build_tower(blocks, cx, cy, cz)
-    cx, cy, cz = _build_summit(blocks, cx, cy, cz)
+    for zone_name, count, pool in ZONE_ORDER:
+        cx, cy, cz = _build_zone(blocks, cx, cy, cz, rng, zone_name, count, pool)
 
-    goal_z = cz + 12.0
-    blocks.append(_platform(cx, cy + 3.0, goal_z, 12, 12, thickness=0.5))
+    goal_z = cz + rng.uniform(10.0, 14.0)
+    blocks.append(_platform(cx + rng.uniform(-2, 2), cy + rng.uniform(1.5, 3.0), goal_z, 12, 12, thickness=0.5))
 
     collisions = [b["collision"] for b in blocks]
     wall_solids = [b["collision"] for b in blocks if b["kind"] == "surf_wall"]
     platform_solids = [b["collision"] for b in blocks if b["kind"] == "platform"]
-    return blocks, collisions, wall_solids, platform_solids, goal_z, cy + 3.0, seed
+    summit_y = cy + 2.0
+    return blocks, collisions, wall_solids, platform_solids, goal_z, summit_y, seed
 
 
 def draw_block(block):
