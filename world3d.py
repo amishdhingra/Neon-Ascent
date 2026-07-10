@@ -170,17 +170,17 @@ def _setpiece_gap(blocks, cx, cy, cz, rng):
 
 
 def _setpiece_tower(blocks, cx, cy, cz, rng):
-    """Spiral shaft — platforms offset in X and Z."""
-    side = 1
-    for i in range(4):
-        lat = side * rng.uniform(5.0, 7.5)
-        fwd = rng.uniform(5.0, 7.0)
-        rise = rng.uniform(1.0, 2.0)
-        cx, cy, cz = _plat(blocks, cx + lat, cy + rise, cz + fwd, 3.0, 3.0)
+    """Spiral shaft — climbs from the entry pad in a visible spiral."""
+    side = rng.choice([-1, 1])
+    for i in range(5):
+        lat = side * rng.uniform(3.5, 6.0)
+        fwd = rng.uniform(4.0, 6.0)
+        rise = rng.uniform(0.8, 1.8)
+        cx, cy, cz = _plat(blocks, cx + lat, cy + rise, cz + fwd, 3.5, 3.5)
         if i % 2 == 0:
-            _wall(blocks, cx - side * 3.5, cy + 2.0, cz - 1.0, h=10.0, d=8.0)
+            _wall(blocks, cx - side * 3.5, cy + 2.0, cz - 0.5, h=10.0, d=7.0)
         side *= -1
-    _place_core(blocks, cx + side * 2.0, cy + 2.5, cz + 2.0)
+    _place_core(blocks, cx, cy + 1.5, cz)
     return cx, cy, cz
 
 
@@ -395,11 +395,20 @@ def _build_rails_from_platforms(blocks):
         _add_rail(x1, y1, z1, x2, y2, z2)
 
 
+def _zone_entry(blocks, cx, cy, cz, rng):
+    """Wide pad bridging from the previous zone — always connected."""
+    fwd = 4.0
+    w, d = 9.0, 9.0
+    return _plat(blocks, cx, cy, cz + fwd, w, d, kind="rest")
+
+
 def _build_zone(blocks, cx, cy, cz, rng, zone_name, count, pool):
     global _GENERATED_ZONES, _CURRENT_THEME
-    _GENERATED_ZONES.append({"name": zone_name, "z_start": cz})
     _CURRENT_THEME = ZONE_THEMES.get(zone_name, (0.31, 1.0, 0.86))
-    _zone_gate(blocks, zone_name, cx, cy, cz)
+
+    cx, cy, cz = _zone_entry(blocks, cx, cy, cz, rng)
+    _GENERATED_ZONES.append({"name": zone_name, "z_start": cz - 5.0})
+    _zone_gate(blocks, zone_name, cx, cy, cz - 2.0)
 
     setpiece = SETPIECES.get(zone_name)
     if setpiece:
