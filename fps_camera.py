@@ -27,6 +27,7 @@ class FpsCamera:
         self.wall_surfing = False
         self.wall_jump_available = False
         self.wall_regrab_timer = 0.0
+        self.wall_jumps_this_air = 0
         self._was_wall_surfing = False
         self._accumulated_mouse = [0.0, 0.0]
 
@@ -128,6 +129,7 @@ class FpsCamera:
         if self.on_ground:
             self.coyote_timer = s.COYOTE_TIME
             self.wall_jump_available = True
+            self.wall_jumps_this_air = 0
         elif self.coyote_timer > 0:
             self.coyote_timer -= dt
 
@@ -188,8 +190,7 @@ class FpsCamera:
         self.wall_surfing = True
 
         if not self._was_wall_surfing:
-            self.wall_jump_available = True
-            self.air_jumps_remaining = max(self.air_jumps_remaining, s.MAX_AIR_JUMPS)
+            self.wall_jump_available = self.wall_jumps_this_air < s.WALL_JUMPS_PER_AIR
 
         self._was_wall_surfing = True
         self._apply_wall_surf_velocity(keys)
@@ -204,6 +205,7 @@ class FpsCamera:
             self.coyote_timer = 0.0
             self.air_jumps_remaining = s.MAX_AIR_JUMPS
             self.wall_jump_available = True
+            self.wall_jumps_this_air = 0
             self.jump_buffer = 0.0
             return
 
@@ -215,6 +217,7 @@ class FpsCamera:
             self.wall_surfing = False
             self.wall_normal = None
             self.wall_jump_available = False
+            self.wall_jumps_this_air += 1
             self._was_wall_surfing = False
             self.wall_regrab_timer = s.WALL_REGRAB_COOLDOWN
             self.jump_buffer = 0.0

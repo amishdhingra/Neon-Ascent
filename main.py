@@ -66,6 +66,7 @@ def respawn_camera(camera, x, y, z, platform_solids):
     camera.air_jumps_remaining = 0
     camera.wall_surfing = False
     camera.wall_normal = None
+    camera.wall_jumps_this_air = 0
     camera._was_wall_surfing = False
     camera.on_ground = top is not None
 
