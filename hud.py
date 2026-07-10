@@ -107,8 +107,9 @@ def draw_stamina_bar(stamina, sprinting):
     _blit_surface(surf, 24, 24)
 
 
-def draw_progress(distance, goal_distance, height):
-    text = _font().render(f"Distance: {int(distance)}m  |  Height: {int(height)}m", True, (170, 230, 210))
+def draw_progress(distance, goal_distance, height, zone_name="", map_seed=0):
+    line = f"{zone_name}  |  {int(distance)}m / {int(goal_distance)}m  |  H:{int(height)}m  |  Seed:{map_seed}"
+    text = _font().render(line, True, (170, 230, 210))
     surf = pygame.Surface((text.get_width() + 16, text.get_height() + 8), pygame.SRCALPHA)
     surf.blit(text, (8, 4))
     _blit_surface(surf, s.SCREEN_WIDTH - surf.get_width() - 24, 24)

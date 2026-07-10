@@ -1,26 +1,16 @@
-"""Neon course geometry — horizontal platformer route with vertical accents."""
+"""Neon course — choreographed zones with distinct layout patterns."""
 
 import random
 
 import settings as s
 
-ZONE_CHALLENGES = {
-    "pit": ["basic", "basic", "basic", "sprint", "double"],
-    "neon": ["basic", "sprint", "double", "wall", "sprint", "double"],
-    "gap": ["sprint", "double", "sprint", "wall_sprint", "double", "sprint"],
-    "tower": ["wall", "double", "sprint", "wall_double", "double", "sprint"],
-    "summit": ["double", "sprint", "wall", "sprint", "double"],
-}
-
-# h = forward distance along +Z, v = small height step, lat = sideways offset
-LIMITS = {
-    "basic": {"h": (4.0, 7.0), "v": (0.15, 0.7), "lat": (0.0, 2.5)},
-    "sprint": {"h": (7.0, 11.0), "v": (0.2, 1.0), "lat": (0.5, 4.0)},
-    "double": {"h": (9.0, 13.5), "v": (0.6, 1.6), "lat": (1.0, 5.0)},
-    "wall": {"h": (5.5, 8.5), "v": (0.8, 2.0), "lat": (2.0, 5.5)},
-    "wall_sprint": {"h": (8.0, 11.5), "v": (0.8, 1.8), "lat": (2.0, 6.0)},
-    "wall_double": {"h": (9.5, 13.0), "v": (1.0, 2.2), "lat": (2.5, 6.5)},
-}
+ZONES = [
+    {"name": "THE PIT", "z_start": 68},
+    {"name": "NEON PIPES", "z_start": 118},
+    {"name": "THE GAP", "z_start": 178},
+    {"name": "THE TOWER", "z_start": 248},
+    {"name": "THE SUMMIT", "z_start": 318},
+]
 
 
 def _box(x, y, z, w, h, d):
@@ -52,72 +42,149 @@ def _top_y(block):
     return y + h * 0.5
 
 
-def _place_step(blocks, cx, cy, cz, challenge, rng):
-    lim = LIMITS.get(challenge, LIMITS["basic"])
-    forward = rng.uniform(*lim["h"])
-    rise = rng.uniform(*lim["v"])
-    lateral = rng.choice([-1, 1]) * rng.uniform(*lim["lat"])
-
-    nx = cx + lateral
-    nz = cz + forward
-    ny = cy + rise
-
-    if challenge.startswith("wall"):
-        pw, pd = rng.uniform(3.0, 4.0), rng.uniform(3.5, 5.0)
-    elif challenge in ("double", "sprint"):
-        pw, pd = rng.uniform(3.5, 5.0), rng.uniform(4.0, 6.0)
-    else:
-        pw, pd = rng.uniform(5.0, 7.0), rng.uniform(5.0, 8.0)
-
-    blocks.append(_platform(nx, ny, nz, pw, pd))
-
-    if challenge.startswith("wall"):
-        mid_x = (cx + nx) * 0.5
-        mid_z = (cz + nz) * 0.5
-        wh = rng.uniform(7.0, 11.0)
-        side = -1.0 if lateral >= 0 else 1.0
-        blocks.append(_surf_wall(mid_x + side * 3.5, cy + wh * 0.45, mid_z, 0.55, wh, 7.0))
-
-    return nx, ny, nz
+def _add_plat(blocks, x, y, z, w, d):
+    blocks.append(_platform(x, y, z, w, d))
+    return x, _top_y(blocks[-1]), z
 
 
-def build_tower(seed=None):
-    """Build a mostly horizontal neon course that climbs gradually forward."""
-    rng = random.Random(seed)
-    blocks = []
+def _add_wall(blocks, x, y, z, h=9.0, w=0.55, d=8.0):
+    blocks.append(_surf_wall(x, y, z, w, h, d))
+    return blocks[-1]
 
-    # Long spawn runway — climb runs forward along +Z
-    blocks.append(_platform(0, 0, 12, 14, 34, thickness=0.6))
-    spawn_top = 0.3
 
-    # Tutorial chain: flat run forward, then introduce sprint/double
+def _build_intro(blocks):
+    spawn = _platform(0, 0, 12, 14, 34, thickness=0.6)
+    blocks.append(spawn)
+    cx, cy, cz = 0.0, 0.3, 4.0
     intro = [
         (0.0, 0.9, 22.0, 6.0, 6.0),
         (0.0, 0.9, 28.5, 6.0, 6.0),
         (1.5, 1.1, 35.0, 5.5, 5.5),
         (-1.0, 1.1, 42.0, 5.5, 5.5),
-        (0.0, 1.5, 50.0, 5.0, 5.0),   # sprint gap
-        (2.0, 2.0, 60.0, 4.5, 5.0),   # double jump
+        (0.0, 1.5, 50.0, 5.0, 5.0),
+        (2.0, 2.0, 60.0, 4.5, 5.0),
     ]
-    cx, cy, cz = 0.0, spawn_top, 4.0
     for ix, iy, iz, iw, id_ in intro:
-        blocks.append(_platform(ix, iy, iz, iw, id_))
-        cx, cy, cz = ix, _top_y(blocks[-1]), iz
+        cx, cy, cz = _add_plat(blocks, ix, iy, iz, iw, id_)
+    _add_wall(blocks, -3.2, 2.0, 50.0, h=10.0, d=10.0)
+    return cx, cy, cz
 
-    # Wall-surf tutorial — orange panel right beside the sprint platform
-    blocks.append(_surf_wall(-3.2, 2.0, 50.0, 0.55, 10.0, 10.0))
 
-    for zone in ("pit", "neon", "gap", "tower", "summit"):
-        for challenge in ZONE_CHALLENGES[zone]:
-            cx, cy, cz = _place_step(blocks, cx, cy, cz, challenge, rng)
+def _build_pit(blocks, cx, cy, cz, rng):
+    """Wide shelves — learn spacing, mild zigzag."""
+    pattern = [
+        (0, 5.5, 4.5, 5.0),
+        (-3, 5.8, 4.0, 4.5),
+        (3, 6.2, 4.5, 4.5),
+        (-2, 6.5, 5.5, 4.0),
+        (0, 6.8, 6.0, 5.0),
+        (4, 7.2, 4.5, 4.0),
+        (-4, 7.5, 5.0, 4.0),
+    ]
+    for lat, fwd, w, d in pattern:
+        cx, cy, cz = _add_plat(blocks, cx + lat, cy + 0.35, cz + fwd, w, d)
+    return cx, cy, cz
 
-    goal_z = cz + 8.0
-    summit_y = cy + 1.5
-    blocks.append(_platform(cx, summit_y, goal_z, 12, 12, thickness=0.5))
+
+def _build_neon(blocks, cx, cy, cz, rng):
+    """Neon pipes — tight alternating corridor, narrow pads."""
+    side = 1
+    for i in range(8):
+        lat = side * rng.uniform(5.0, 6.5)
+        fwd = rng.uniform(4.5, 6.0)
+        w = rng.uniform(2.6, 3.2)
+        d = rng.uniform(3.0, 3.8)
+        rise = 0.4 if i % 2 == 0 else 0.15
+        cx, cy, cz = _add_plat(blocks, cx + lat, cy + rise, cz + fwd, w, d)
+        if i in (2, 5):
+            _add_wall(blocks, cx - side * 2.8, cy + 4.0, cz - 1.5, h=8.5, d=6.0)
+        side *= -1
+    # sprint squeeze through center
+    cx, cy, cz = _add_plat(blocks, 0, cy + 0.5, cz + 9.5, 3.0, 3.5)
+    return cx, cy, cz
+
+
+def _build_gap(blocks, cx, cy, cz, rng):
+    """The gap — long forward hops, tiny landing pads, sprint required."""
+    gaps = [
+        (0, 9.0, 0.6, 2.8, 3.0),
+        (-2, 10.5, 0.8, 2.6, 2.8),
+        (2.5, 11.0, 0.5, 2.5, 2.8),
+        (0, 10.0, 1.0, 2.8, 3.0),
+        (-3, 12.0, 0.7, 2.4, 2.6),
+        (3, 11.5, 0.9, 2.5, 2.8),
+        (0, 12.5, 1.2, 2.6, 3.0),
+    ]
+    for lat, fwd, rise, w, d in gaps:
+        cx, cy, cz = _add_plat(blocks, cx + lat, cy + rise, cz + fwd, w, d)
+    # double jump recovery shelf
+    cx, cy, cz = _add_plat(blocks, cx, cy + 1.5, cz + 11.0, 4.0, 5.0)
+    return cx, cy, cz
+
+
+def _build_tower(blocks, cx, cy, cz, rng):
+    """The tower — climb up with wall-surf alleys and switchbacks."""
+    # stair climb
+    for i in range(5):
+        cx, cy, cz = _add_plat(blocks, cx + rng.uniform(-2, 2), cy + 1.1, cz + 5.5, 3.5, 4.0)
+    # wall alley — surf down between two orange panels
+    mid_z = cz + 4.0
+    _add_wall(blocks, cx - 4.0, cy + 5.0, mid_z, h=12.0, d=10.0)
+    _add_wall(blocks, cx + 4.0, cy + 5.0, mid_z, h=12.0, d=10.0)
+    cx, cy, cz = _add_plat(blocks, cx, cy + 2.5, cz + 10.0, 3.0, 3.5)
+    # switchback — drop then climb opposite side
+    cx, cy, cz = _add_plat(blocks, cx - 6.0, cy - 0.5, cz + 6.0, 3.5, 4.0)
+    cx, cy, cz = _add_plat(blocks, cx + 7.0, cy + 1.8, cz + 7.0, 3.0, 3.5)
+    _add_wall(blocks, cx - 3.5, cy + 3.0, cz, h=10.0, d=7.0)
+    cx, cy, cz = _add_plat(blocks, cx, cy + 2.0, cz + 9.0, 2.8, 3.2)
+    return cx, cy, cz
+
+
+def _build_summit(blocks, cx, cy, cz, rng):
+    """Summit gauntlet — every tool chained, small pads, high risk."""
+    chain = [
+        (-2.5, 10.0, 1.0, 2.6, 3.0, True),
+        (0, 11.5, 1.5, 2.4, 2.8, False),
+        (3, 10.5, 0.8, 2.5, 2.8, True),
+        (-1, 12.0, 2.0, 2.4, 2.6, False),
+        (2, 11.0, 1.2, 2.6, 3.0, True),
+        (0, 13.0, 2.5, 2.8, 3.2, False),
+    ]
+    for lat, fwd, rise, w, d, wall in chain:
+        cx, cy, cz = _add_plat(blocks, cx + lat, cy + rise, cz + fwd, w, d)
+        if wall:
+            _add_wall(blocks, cx + (3.5 if lat <= 0 else -3.5), cy + 2.0, cz - 1.0, h=9.0, d=5.5)
+    return cx, cy, cz
+
+
+def get_zone_name(z_pos):
+    name = ZONES[0]["name"]
+    for zone in ZONES:
+        if z_pos >= zone["z_start"]:
+            name = zone["name"]
+    return name
+
+
+def build_tower(seed=None):
+    if seed is None:
+        seed = random.randrange(1_000_000)
+    rng = random.Random(seed)
+    blocks = []
+
+    cx, cy, cz = _build_intro(blocks)
+    cx, cy, cz = _build_pit(blocks, cx, cy, cz, rng)
+    cx, cy, cz = _build_neon(blocks, cx, cy, cz, rng)
+    cx, cy, cz = _build_gap(blocks, cx, cy, cz, rng)
+    cx, cy, cz = _build_tower(blocks, cx, cy, cz, rng)
+    cx, cy, cz = _build_summit(blocks, cx, cy, cz, rng)
+
+    goal_z = cz + 10.0
+    summit_y = cy + 2.0
+    blocks.append(_platform(cx, cy + 2.0, goal_z, 14, 14, thickness=0.5))
 
     collisions = [b["collision"] for b in blocks]
     wall_solids = [b["collision"] for b in blocks if b["kind"] == "surf_wall"]
-    return blocks, collisions, wall_solids, goal_z, summit_y
+    return blocks, collisions, wall_solids, goal_z, summit_y, seed
 
 
 def draw_block(block):

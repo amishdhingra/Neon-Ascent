@@ -38,7 +38,7 @@ from OpenGL.GLU import gluPerspective
 import settings as s
 from fps_camera import FpsCamera
 from hud import draw_progress, draw_stamina_bar
-from world3d import build_tower, draw_block
+from world3d import build_tower, draw_block, get_zone_name
 
 SPAWN_Y = 0.3
 SPAWN_Z = 4.0
@@ -109,7 +109,7 @@ def main():
     setup_gl()
     setup_projection(s.SCREEN_WIDTH, s.SCREEN_HEIGHT)
 
-    blocks, collisions, wall_solids, goal_z, _summit_y = build_tower(seed=42)
+    blocks, collisions, wall_solids, goal_z, _summit_y, map_seed = build_tower()
     camera = FpsCamera(0, SPAWN_Y, SPAWN_Z)
 
     pygame.event.set_grab(True)
@@ -164,7 +164,8 @@ def main():
 
         distance = max(0.0, camera.z - START_Z)
         progress = min(100, int(100 * distance / goal_z))
-        draw_progress(distance, goal_z, camera.y)
+        zone = get_zone_name(camera.z)
+        draw_progress(distance, goal_z, camera.y, zone, map_seed)
         state = "SURF" if camera.wall_surfing else ("SPRINT" if camera.is_sprinting else "RUN")
         caption = (
             f"{s.TITLE}  |  {int(distance)}m / {int(goal_z)}m  |  {progress}%  |  {state}  |  "
