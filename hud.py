@@ -113,3 +113,13 @@ def draw_progress(distance, goal_distance, height, zone_name="", map_seed=0):
     surf = pygame.Surface((text.get_width() + 16, text.get_height() + 8), pygame.SRCALPHA)
     surf.blit(text, (8, 4))
     _blit_surface(surf, s.SCREEN_WIDTH - surf.get_width() - 24, 24)
+
+
+def draw_respawn_hint(has_checkpoint):
+    if not s.TESTING_RESPAWN:
+        return
+    label = "[R] Respawn — last platform" if has_checkpoint else "[R] Respawn — spawn"
+    text = _font().render(label, True, (255, 140, 100))
+    surf = pygame.Surface((text.get_width() + 16, text.get_height() + 8), pygame.SRCALPHA)
+    surf.blit(text, (8, 4))
+    _blit_surface(surf, s.SCREEN_WIDTH - surf.get_width() - 24, 58)

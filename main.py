@@ -37,12 +37,22 @@ from OpenGL.GLU import gluPerspective
 
 import settings as s
 from fps_camera import FpsCamera
-from hud import draw_progress, draw_stamina_bar
+from hud import draw_progress, draw_respawn_hint, draw_stamina_bar
 from world3d import build_tower, draw_block, get_zone_name
 
 SPAWN_Y = 0.3
 SPAWN_Z = 4.0
 START_Z = 0.0
+
+
+def respawn_camera(camera, x, y, z):
+    camera.x, camera.y, camera.z = x, y, z
+    camera.vx = camera.vy = camera.vz = 0
+    camera.air_jumps_remaining = 0
+    camera.wall_surfing = False
+    camera.wall_normal = None
+    camera._was_wall_surfing = False
+    camera.on_ground = True
 
 
 def setup_gl():
@@ -111,6 +121,8 @@ def main():
 
     blocks, collisions, wall_solids, goal_z, _summit_y, map_seed = build_tower()
     camera = FpsCamera(0, SPAWN_Y, SPAWN_Z)
+    checkpoint = [0.0, SPAWN_Y, SPAWN_Z]
+    has_platform_checkpoint = False
 
     pygame.event.set_grab(True)
     pygame.mouse.set_visible(False)
@@ -134,6 +146,8 @@ def main():
                     pygame.mouse.set_visible(not mouse_locked)
                 elif event.key == pygame.K_SPACE:
                     camera.request_jump()
+                elif event.key == pygame.K_r and s.TESTING_RESPAWN:
+                    respawn_camera(camera, checkpoint[0], checkpoint[1], checkpoint[2])
             elif event.type == pygame.MOUSEMOTION and mouse_locked:
                 camera.process_mouse(event.rel)
 
@@ -146,10 +160,12 @@ def main():
         camera.move_with_collision(collisions, wall_solids, dt)
         camera.update_wall_surf(wall_solids, keys)
 
-        if camera.y < -15:
-            camera.x, camera.y, camera.z = 0, SPAWN_Y, SPAWN_Z
-            camera.vx = camera.vy = camera.vz = 0
-            camera.air_jumps_remaining = 0
+        if camera.on_ground:
+            checkpoint[0], checkpoint[1], checkpoint[2] = camera.x, camera.y, camera.z
+            has_platform_checkpoint = True
+
+        if s.TESTING_RESPAWN and camera.y < s.FALL_RESPAWN_Y:
+            respawn_camera(camera, checkpoint[0], checkpoint[1], checkpoint[2])
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         setup_projection(s.SCREEN_WIDTH, s.SCREEN_HEIGHT)
@@ -166,6 +182,7 @@ def main():
         progress = min(100, int(100 * distance / goal_z))
         zone = get_zone_name(camera.z)
         draw_progress(distance, goal_z, camera.y, zone, map_seed)
+        draw_respawn_hint(has_platform_checkpoint)
         state = "SURF" if camera.wall_surfing else ("SPRINT" if camera.is_sprinting else "RUN")
         caption = (
             f"{s.TITLE}  |  {int(distance)}m / {int(goal_z)}m  |  {progress}%  |  {state}  |  "
