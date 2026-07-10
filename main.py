@@ -141,10 +141,10 @@ def main():
         camera.apply_mouse()
         camera.handle_input(keys, dt)
         camera.update_timers(dt)
+        camera.try_jump(keys)
         camera.apply_gravity(dt)
         camera.move_with_collision(collisions, wall_solids, dt)
         camera.update_wall_surf(wall_solids, keys)
-        camera.try_jump(keys)
 
         if camera.y < -15:
             camera.x, camera.y, camera.z = 0, SPAWN_Y, SPAWN_Z

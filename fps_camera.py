@@ -237,19 +237,20 @@ class FpsCamera:
             self.vy = -s.MAX_FALL_SPEED
 
     def move_with_collision(self, solids, wall_solids, dt):
+        was_on_ground = self.on_ground
         self.on_ground = False
         wall_set = set(wall_solids)
         r = s.PLAYER_RADIUS
         h = s.PLAYER_HEIGHT
 
         self.x += self.vx * dt
-        self._collide_axis(solids, wall_set, r, h, axis="x")
+        self._collide_axis(solids, wall_set, r, h, axis="x", was_on_ground=was_on_ground)
 
         self.y += self.vy * dt
-        self._collide_axis(solids, wall_set, r, h, axis="y")
+        self._collide_axis(solids, wall_set, r, h, axis="y", was_on_ground=was_on_ground)
 
         self.z += self.vz * dt
-        self._collide_axis(solids, wall_set, r, h, axis="z")
+        self._collide_axis(solids, wall_set, r, h, axis="z", was_on_ground=was_on_ground)
 
         if not self.on_ground and self.vy <= 0 and not self.wall_surfing:
             self._snap_to_ground(solids, r, h)
@@ -276,61 +277,84 @@ class FpsCamera:
     def _player_box(self, r, h):
         return (self.x - r, self.y, self.z - r, self.x + r, self.y + h, self.z + r)
 
-    def _collide_axis(self, solids, wall_set, r, h, axis):
+    def _collide_axis(self, solids, wall_set, r, h, axis, was_on_ground=False):
         px0, py0, pz0, px1, py1, pz1 = self._player_box(r, h)
+        airborne = not was_on_ground
+
         for box in solids:
             sx0, sy0, sz0, sx1, sy1, sz1 = box
             if px1 <= sx0 or px0 >= sx1 or py1 <= sy0 or py0 >= sy1 or pz1 <= sz0 or pz0 >= sz1:
                 continue
 
             is_wall = box in wall_set
-            airborne = not self.on_ground
 
             if axis == "x":
-                pen_left = px1 - sx0
-                pen_right = sx1 - px0
-                if self.vx > 0 and pen_left > 0 and pen_left <= pen_right:
-                    self.x = sx0 - r
-                    if is_wall and airborne:
-                        self.wall_normal = (-1.0, 0.0)
-                    elif not (is_wall and airborne):
-                        self.vx = 0
-                elif self.vx < 0 and pen_right > 0 and pen_right < pen_left:
-                    self.x = sx1 + r
-                    if is_wall and airborne:
-                        self.wall_normal = (1.0, 0.0)
-                    elif not (is_wall and airborne):
-                        self.vx = 0
+                if self.vx > 0:
+                    if px1 > sx1:
+                        self.x = sx1 - r
+                        if is_wall and airborne:
+                            self.wall_normal = (1.0, 0.0)
+                        elif not (is_wall and airborne):
+                            self.vx = 0
+                    elif px0 < sx0 <= px1:
+                        self.x = sx0 - r
+                        if is_wall and airborne:
+                            self.wall_normal = (-1.0, 0.0)
+                        elif not (is_wall and airborne):
+                            self.vx = 0
+                elif self.vx < 0:
+                    if px0 < sx0:
+                        self.x = sx0 + r
+                        if is_wall and airborne:
+                            self.wall_normal = (-1.0, 0.0)
+                        elif not (is_wall and airborne):
+                            self.vx = 0
+                    elif px0 < sx1 <= px1:
+                        self.x = sx1 + r
+                        if is_wall and airborne:
+                            self.wall_normal = (1.0, 0.0)
+                        elif not (is_wall and airborne):
+                            self.vx = 0
 
             elif axis == "y":
-                pen_down = py1 - sy0
-                pen_up = sy1 - py0
-                if self.vy < 0 and pen_down > 0 and pen_down <= pen_up:
+                if self.vy < 0:
                     self.y = sy1
                     self.vy = 0
                     self.on_ground = True
                     self.wall_surfing = False
                     self.wall_normal = None
                     self._was_wall_surfing = False
-                elif self.vy > 0 and pen_up > 0 and pen_up < pen_down:
+                elif self.vy > 0:
                     self.y = sy0 - h
                     self.vy = 0
 
             elif axis == "z":
-                pen_back = pz1 - sz0
-                pen_front = sz1 - pz0
-                if self.vz > 0 and pen_back > 0 and pen_back <= pen_front:
-                    self.z = sz0 - r
-                    if is_wall and airborne:
-                        self.wall_normal = (0.0, -1.0)
-                    elif not (is_wall and airborne):
-                        self.vz = 0
-                elif self.vz < 0 and pen_front > 0 and pen_front < pen_back:
-                    self.z = sz1 + r
-                    if is_wall and airborne:
-                        self.wall_normal = (0.0, 1.0)
-                    elif not (is_wall and airborne):
-                        self.vz = 0
+                if self.vz > 0:
+                    if pz1 > sz1:
+                        self.z = sz1 - r
+                        if is_wall and airborne:
+                            self.wall_normal = (0.0, 1.0)
+                        elif not (is_wall and airborne):
+                            self.vz = 0
+                    elif pz0 < sz0 <= pz1:
+                        self.z = sz0 - r
+                        if is_wall and airborne:
+                            self.wall_normal = (0.0, -1.0)
+                        elif not (is_wall and airborne):
+                            self.vz = 0
+                elif self.vz < 0:
+                    if pz0 < sz0:
+                        self.z = sz0 + r
+                        if is_wall and airborne:
+                            self.wall_normal = (0.0, -1.0)
+                        elif not (is_wall and airborne):
+                            self.vz = 0
+                    elif pz0 < sz1 <= pz1:
+                        self.z = sz1 + r
+                        if is_wall and airborne:
+                            self.wall_normal = (0.0, 1.0)
+                        elif not (is_wall and airborne):
+                            self.vz = 0
 
     def apply_gl(self):
         from OpenGL.GL import (
