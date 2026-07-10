@@ -37,11 +37,11 @@ from OpenGL.GLU import gluPerspective
 
 import settings as s
 from fps_camera import FpsCamera
-from hud import draw_progress, draw_respawn_hint, draw_stamina_bar
+from hud import draw_air_jump_indicator, draw_progress, draw_respawn_hint, draw_stamina_bar
 from world3d import build_tower, draw_block, get_zone_name
 
 SPAWN_Y = 0.3
-SPAWN_Z = 4.0
+SPAWN_Z = -2.0
 START_Z = 0.0
 
 
@@ -201,6 +201,7 @@ def main():
 
         draw_crosshair()
         draw_stamina_bar(camera.stamina, camera.is_sprinting)
+        draw_air_jump_indicator(camera.air_jumps_remaining, camera.on_ground)
 
         distance = max(0.0, camera.z - START_Z)
         progress = min(100, int(100 * distance / goal_z))

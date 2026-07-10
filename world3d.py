@@ -1,4 +1,4 @@
-"""Procedural neon course — varied layouts, short kick walls, always hard."""
+"""Procedural neon course — varied layouts, tall surf walls, always hard."""
 
 import random
 
@@ -68,9 +68,8 @@ def _plat(blocks, x, y, z, w, d, colour=None):
     return x, _top_y(blocks[-1]), z
 
 
-def _kick_panel(blocks, x, y, z, side_x=1, h=4.5, d=5.0):
-    """Short wall beside a gap — kick off, don't climb."""
-    blocks.append(_surf_wall(x + side_x * 0.3, y, z, 0.55, h, d))
+def _wall(blocks, x, y, z, h=10.0, w=0.55, d=8.0):
+    blocks.append(_surf_wall(x, y, z, w, h, d))
 
 
 def _pad_size(rng, mechanic):
@@ -79,16 +78,16 @@ def _pad_size(rng, mechanic):
     return pw, pd
 
 
-def _step(blocks, cx, cy, cz, rng, mechanic, lat_mul=1.0, rise_mul=1.0, kick_side=None):
+def _step(blocks, cx, cy, cz, rng, mechanic, lat_mul=1.0, rise_mul=1.0, wall=False, wall_side=None):
     spec = HARD[mechanic]
     fwd = rng.uniform(*spec["fwd"])
     lat = rng.choice([-1, 1]) * rng.uniform(*spec["lat"]) * lat_mul
     rise = rng.uniform(*spec["rise"]) * rise_mul
     w, d = _pad_size(rng, mechanic)
     nx, ny, nz = cx + lat, cy + rise, cz + fwd
-    if kick_side is not None:
-        mid_y = cy + rise * 0.45 + 1.8
-        _kick_panel(blocks, (cx + nx) * 0.5 + kick_side * 2.8, mid_y, (cz + nz) * 0.5, side_x=kick_side, d=rng.uniform(4.5, 6.5))
+    if wall:
+        side = wall_side if wall_side else (-1 if lat >= 0 else 1)
+        _wall(blocks, (cx + nx) * 0.5 + side * 3.0, cy + rise * 0.5 + 2.0, (cz + nz) * 0.5, h=rng.uniform(9, 12), d=rng.uniform(7, 10))
     return _plat(blocks, nx, ny, nz, w, d)
 
 
@@ -96,8 +95,7 @@ def _step(blocks, cx, cy, cz, rng, mechanic, lat_mul=1.0, rise_mul=1.0, kick_sid
 
 
 def _seg_sprint_gap(blocks, cx, cy, cz, rng):
-    kick = rng.choice([-1, 1]) if rng.random() < 0.5 else None
-    return _step(blocks, cx, cy, cz, rng, "sprint", kick_side=kick)
+    return _step(blocks, cx, cy, cz, rng, "sprint", wall=rng.random() < 0.35)
 
 
 def _seg_double_arc(blocks, cx, cy, cz, rng):
@@ -107,18 +105,16 @@ def _seg_double_arc(blocks, cx, cy, cz, rng):
 
 
 def _seg_wall_sprint(blocks, cx, cy, cz, rng):
-    side = rng.choice([-1, 1])
-    return _step(blocks, cx, cy, cz, rng, "wall_sprint", kick_side=side)
+    return _step(blocks, cx, cy, cz, rng, "wall_sprint", wall=True)
 
 
 def _seg_wall_alley(blocks, cx, cy, cz, rng):
-    """Two short kick panels — surf down one, jump to the pad between."""
+    """Two tall surf walls — slide down one, jump to the pad between."""
     tz = cz + rng.uniform(8.0, 11.0)
-    off = rng.uniform(3.5, 5.0)
+    off = rng.uniform(3.0, 4.5)
     rise = rng.uniform(1.0, 2.5)
-    mid_y = cy + rise * 0.5 + 1.5
-    _kick_panel(blocks, cx - off, mid_y, tz - 2.5, side_x=-1, h=4.5, d=rng.uniform(5, 7))
-    _kick_panel(blocks, cx + off, mid_y, tz - 2.5, side_x=1, h=4.5, d=rng.uniform(5, 7))
+    _wall(blocks, cx - off, cy + rise + 1.0, tz - 2.0, h=rng.uniform(11, 14), d=rng.uniform(9, 12))
+    _wall(blocks, cx + off, cy + rise + 1.0, tz - 2.0, h=rng.uniform(11, 14), d=rng.uniform(9, 12))
     w, d = _pad_size(rng, "wall_sprint")
     return _plat(blocks, cx + rng.uniform(-1.5, 1.5), cy + rise, tz, w, d)
 
@@ -140,7 +136,7 @@ def _seg_pipe_swing(blocks, cx, cy, cz, rng):
         w, d = _pad_size(rng, "sprint")
         cx, cy, cz = _plat(blocks, cx + lat, base + rng.uniform(-0.2, 0.6), cz + fwd, w, d)
         if i % 2 == 0:
-            _kick_panel(blocks, cx - side * 2.5, base + 2.5, cz - 0.5, side_x=-side, h=4.0, d=rng.uniform(4, 6))
+            _wall(blocks, cx - side * 2.8, base + 3.0, cz - 1.0, h=rng.uniform(8, 11), d=rng.uniform(6, 9))
         side *= -1
     return cx, cy, cz
 
@@ -153,7 +149,7 @@ def _seg_gap_marathon(blocks, cx, cy, cz, rng):
 
 def _seg_switchback(blocks, cx, cy, cz, rng):
     side = rng.choice([-1, 1])
-    cx, cy, cz = _step(blocks, cx, cy, cz, rng, "wall_sprint", kick_side=side)
+    cx, cy, cz = _step(blocks, cx, cy, cz, rng, "wall_sprint", wall=True, wall_side=side)
     cx, cy, cz = _plat(blocks, cx - side * rng.uniform(9.0, 12.0), cy + rng.uniform(-0.5, 0.8), cz + rng.uniform(5.0, 8.0), 2.2, 2.8)
     return _step(blocks, cx, cy, cz, rng, "double", lat_mul=side)
 
@@ -161,7 +157,7 @@ def _seg_switchback(blocks, cx, cy, cz, rng):
 def _seg_climb_burst(blocks, cx, cy, cz, rng):
     for _ in range(2):
         cx, cy, cz = _step(blocks, cx, cy, cz, rng, "double", lat_mul=0.3, rise_mul=1.2)
-    return _step(blocks, cx, cy, cz, rng, "wall_sprint", kick_side=rng.choice([-1, 1]))
+    return _step(blocks, cx, cy, cz, rng, "wall_sprint", wall=True)
 
 
 def _seg_combo_sprint(blocks, cx, cy, cz, rng):
@@ -182,7 +178,7 @@ def _seg_combo_double(blocks, cx, cy, cz, rng):
 def _seg_final_gauntlet(blocks, cx, cy, cz, rng):
     cx, cy, cz = _seg_sprint_gap(blocks, cx, cy, cz, rng)
     cx, cy, cz = _seg_wall_alley(blocks, cx, cy, cz, rng)
-    cx, cy, cz = _step(blocks, cx, cy, cz, rng, "wall_double", kick_side=rng.choice([-1, 1]))
+    cx, cy, cz = _step(blocks, cx, cy, cz, rng, "wall_double", wall=True)
     return _step(blocks, cx, cy, cz, rng, "double")
 
 
@@ -215,7 +211,7 @@ def _seg_island_arc(blocks, cx, cy, cz, rng):
 
 
 def _seg_kick_corridor(blocks, cx, cy, cz, rng):
-    """Alternating short walls — wall-kick sideways, not climb up."""
+    """Alternating tall walls — surf and wall-jump sideways across."""
     side = rng.choice([-1, 1])
     for _ in range(rng.randint(3, 4)):
         fwd = rng.uniform(7.0, 10.0)
@@ -223,7 +219,7 @@ def _seg_kick_corridor(blocks, cx, cy, cz, rng):
         w, d = _pad_size(rng, "wall")
         nz = cz + fwd
         nx = cx + lat
-        _kick_panel(blocks, (cx + nx) * 0.5 - side * 1.5, cy + 2.0, (cz + nz) * 0.5, side_x=-side, h=4.0, d=fwd * 0.7)
+        _wall(blocks, (cx + nx) * 0.5 - side * 3.0, cy + 2.0, (cz + nz) * 0.5, h=rng.uniform(9, 12), d=rng.uniform(7, 10))
         cx, cy, cz = _plat(blocks, nx, cy + rng.uniform(0.3, 1.2), nz, w, d)
         side *= -1
     return cx, cy, cz
@@ -252,7 +248,7 @@ def _seg_overhang(blocks, cx, cy, cz, rng):
     side = rng.choice([-1, 1])
     fwd = rng.uniform(9.0, 12.0)
     rise = rng.uniform(2.5, 4.0)
-    _kick_panel(blocks, cx + side * 3.5, cy + 1.5, cz + fwd * 0.45, side_x=-side, h=4.5, d=fwd * 0.6)
+    _wall(blocks, cx + side * 3.5, cy + 1.5, cz + fwd * 0.45, h=rng.uniform(9, 12), d=rng.uniform(7, 10))
     w, d = _pad_size(rng, "double")
     return _plat(blocks, cx + side * rng.uniform(1.0, 3.0), cy + rise, cz + fwd, w, d)
 
@@ -294,15 +290,17 @@ SEGMENTS = {
 
 
 def _build_intro(blocks):
-    blocks.append(_platform(0, 0, 12, 14, 34, thickness=0.6))
-    cx, cy, cz = 0.0, 0.3, 4.0
+    """Short tutorial chain — each hop teaches the next mechanic."""
+    blocks.append(_platform(0, 0, 0, 10, 10, thickness=0.6))
+    cx, cy, cz = 0.0, 0.3, -2.0
     for ix, iy, iz, iw, id_ in [
-        (0.0, 0.9, 22.0, 5.5, 5.5),
-        (0.0, 1.5, 50.0, 4.5, 4.5),
-        (2.0, 2.0, 60.0, 4.0, 4.5),
+        (0.0, 0.5, 5.0, 4.5, 4.5),    # ~7m — normal jump
+        (0.0, 0.8, 13.0, 4.0, 4.0),   # ~8m — sprint helps
+        (0.0, 1.0, 22.0, 4.0, 4.0),   # ~9m — sprint jump
+        (1.0, 1.3, 32.0, 4.0, 4.5),   # ~10m — double jump or wall kick
     ]:
         cx, cy, cz = _plat(blocks, ix, iy, iz, iw, id_)
-    _kick_panel(blocks, -3.0, 2.5, 50.0, side_x=-1, h=4.5, d=7.0)
+    _wall(blocks, -3.0, 2.0, 27.0, h=10.0, d=9.0)
     return cx, cy, cz
 
 

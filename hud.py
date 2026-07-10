@@ -107,6 +107,32 @@ def draw_stamina_bar(stamina, sprinting):
     _blit_surface(surf, 24, 24)
 
 
+def draw_air_jump_indicator(air_jumps_remaining, on_ground):
+    """Shows whether the double jump is still available."""
+    pip_r = 9
+    gap = 10
+    count = s.MAX_AIR_JUMPS
+    label_h = 22
+    width = count * pip_r * 2 + (count - 1) * gap + 4
+    height = label_h + pip_r * 2 + 10
+    surf = pygame.Surface((width, height), pygame.SRCALPHA)
+
+    available = count if on_ground else air_jumps_remaining
+    label_colour = (120, 220, 255) if available > 0 else (100, 105, 130)
+    surf.blit(_font().render("AIR JUMP", True, label_colour), (0, 0))
+
+    for i in range(count):
+        cx = pip_r + 2 + i * (pip_r * 2 + gap)
+        cy = label_h + pip_r + 2
+        used = i >= available
+        fill = (60, 65, 90) if used else (80, 240, 255)
+        border = (90, 95, 120) if used else (160, 250, 255)
+        pygame.draw.circle(surf, fill, (cx, cy), pip_r)
+        pygame.draw.circle(surf, border, (cx, cy), pip_r, width=2)
+
+    _blit_surface(surf, 24, 88)
+
+
 def draw_progress(distance, goal_distance, height, zone_name="", map_seed=0):
     line = f"{zone_name}  |  {int(distance)}m / {int(goal_distance)}m  |  H:{int(height)}m  |  Seed:{map_seed}"
     text = _font().render(line, True, (170, 230, 210))
