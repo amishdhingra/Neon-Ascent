@@ -45,14 +45,29 @@ SPAWN_Z = 4.0
 START_Z = 0.0
 
 
-def respawn_camera(camera, x, y, z):
+def find_platform_top(platform_solids, x, z, radius=None):
+    """Highest platform surface under the player's feet."""
+    r = radius if radius is not None else s.PLAYER_RADIUS
+    best = None
+    for sx0, sy0, sz0, sx1, sy1, sz1 in platform_solids:
+        if x + r <= sx0 or x - r >= sx1 or z + r <= sz0 or z - r >= sz1:
+            continue
+        if best is None or sy1 > best:
+            best = sy1
+    return best
+
+
+def respawn_camera(camera, x, y, z, platform_solids):
+    top = find_platform_top(platform_solids, x, z)
+    if top is not None:
+        y = top
     camera.x, camera.y, camera.z = x, y, z
     camera.vx = camera.vy = camera.vz = 0
     camera.air_jumps_remaining = 0
     camera.wall_surfing = False
     camera.wall_normal = None
     camera._was_wall_surfing = False
-    camera.on_ground = True
+    camera.on_ground = top is not None
 
 
 def setup_gl():
@@ -119,10 +134,11 @@ def main():
     setup_gl()
     setup_projection(s.SCREEN_WIDTH, s.SCREEN_HEIGHT)
 
-    blocks, collisions, wall_solids, goal_z, _summit_y, map_seed = build_tower()
+    blocks, collisions, wall_solids, platform_solids, goal_z, _summit_y, map_seed = build_tower()
     camera = FpsCamera(0, SPAWN_Y, SPAWN_Z)
     checkpoint = [0.0, SPAWN_Y, SPAWN_Z]
     has_platform_checkpoint = False
+    respawn_grace = 0.0
 
     pygame.event.set_grab(True)
     pygame.mouse.set_visible(False)
@@ -147,7 +163,8 @@ def main():
                 elif event.key == pygame.K_SPACE:
                     camera.request_jump()
                 elif event.key == pygame.K_r and s.TESTING_RESPAWN:
-                    respawn_camera(camera, checkpoint[0], checkpoint[1], checkpoint[2])
+                    respawn_camera(camera, checkpoint[0], checkpoint[1], checkpoint[2], platform_solids)
+                    respawn_grace = s.RESPAWN_GRACE
             elif event.type == pygame.MOUSEMOTION and mouse_locked:
                 camera.process_mouse(event.rel)
 
@@ -160,12 +177,18 @@ def main():
         camera.move_with_collision(collisions, wall_solids, dt)
         camera.update_wall_surf(wall_solids, keys)
 
-        if camera.on_ground:
-            checkpoint[0], checkpoint[1], checkpoint[2] = camera.x, camera.y, camera.z
-            has_platform_checkpoint = True
+        if respawn_grace > 0:
+            respawn_grace -= dt
 
-        if s.TESTING_RESPAWN and camera.y < s.FALL_RESPAWN_Y:
-            respawn_camera(camera, checkpoint[0], checkpoint[1], checkpoint[2])
+        if camera.on_ground:
+            top = find_platform_top(platform_solids, camera.x, camera.z)
+            if top is not None and abs(camera.y - top) <= s.LANDING_TOLERANCE + 0.05:
+                checkpoint[0], checkpoint[1], checkpoint[2] = camera.x, top, camera.z
+                has_platform_checkpoint = True
+
+        if s.TESTING_RESPAWN and respawn_grace <= 0 and camera.y < s.FALL_RESPAWN_Y:
+            respawn_camera(camera, checkpoint[0], checkpoint[1], checkpoint[2], platform_solids)
+            respawn_grace = s.RESPAWN_GRACE
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         setup_projection(s.SCREEN_WIDTH, s.SCREEN_HEIGHT)

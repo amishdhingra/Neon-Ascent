@@ -193,7 +193,8 @@ def build_tower(seed=None):
 
     collisions = [b["collision"] for b in blocks]
     wall_solids = [b["collision"] for b in blocks if b["kind"] == "surf_wall"]
-    return blocks, collisions, wall_solids, goal_z, cy + 3.0, seed
+    platform_solids = [b["collision"] for b in blocks if b["kind"] == "platform"]
+    return blocks, collisions, wall_solids, platform_solids, goal_z, cy + 3.0, seed
 
 
 def draw_block(block):
