@@ -1,6 +1,7 @@
 """Neon Ascent — 3D first-person platformer climb."""
 
 import sys
+import time
 
 import pygame
 from pygame.locals import DOUBLEBUF, OPENGL, QUIT
@@ -37,8 +38,18 @@ from OpenGL.GLU import gluPerspective
 
 import settings as s
 from fps_camera import FpsCamera
-from hud import draw_air_jump_indicator, draw_progress, draw_respawn_hint, draw_stamina_bar
-from world3d import build_tower, draw_block, get_zone_name
+from hud import (
+    draw_air_jump_indicator,
+    draw_cores,
+    draw_progress,
+    draw_respawn_hint,
+    draw_stamina_bar,
+    draw_timer,
+    draw_win_screen,
+    draw_zone_banner,
+)
+from scores import get_best, save_best
+from world3d import build_tower, draw_block, draw_guide_rails, get_zone_name
 
 SPAWN_Y = 0.3
 SPAWN_Z = -2.0
@@ -46,7 +57,6 @@ START_Z = 0.0
 
 
 def find_platform_top(platform_solids, x, z, radius=None):
-    """Highest platform surface under the player's feet."""
     r = radius if radius is not None else s.PLAYER_RADIUS
     best = None
     for sx0, sy0, sz0, sx1, sy1, sz1 in platform_solids:
@@ -71,6 +81,34 @@ def respawn_camera(camera, x, y, z, platform_solids):
     camera.on_ground = top is not None
 
 
+def player_on_summit(camera, summit_box, platform_solids):
+    if summit_box is None:
+        return False
+    sx0, sy0, sz0, sx1, sy1, sz1 = summit_box
+    if not (camera.x >= sx0 and camera.x <= sx1 and camera.z >= sz0 and camera.z <= sz1):
+        return False
+    top = find_platform_top(platform_solids, camera.x, camera.z)
+    if top is None or abs(camera.y - top) > s.LANDING_TOLERANCE + 0.08:
+        return False
+    return sy0 - 0.5 <= top <= sy1 + 0.05
+
+
+def try_collect_cores(camera, blocks):
+    collected = 0
+    r = s.COLLECTIBLE_RADIUS
+    px, py, pz = camera.x, camera.y + s.PLAYER_HEIGHT * 0.5, camera.z
+    for block in blocks:
+        if block["kind"] != "core" or block.get("collected"):
+            continue
+        cx, cy, cz = block["pos"]
+        if (px - cx) ** 2 + (py - cy) ** 2 + (pz - cz) ** 2 <= r * r:
+            block["collected"] = True
+    for block in blocks:
+        if block["kind"] == "core" and block.get("collected"):
+            collected += 1
+    return collected
+
+
 def setup_gl():
     glEnable(GL_DEPTH_TEST)
     glClearColor(*s.COLOUR_BG, 1.0)
@@ -83,11 +121,11 @@ def setup_gl():
     glFogf(GL_FOG_END, 180.0)
 
 
-def setup_projection(width, height):
+def setup_projection(width, height, fov=None):
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
     aspect = width / max(height, 1)
-    gluPerspective(s.FOV, aspect, s.NEAR_PLANE, s.FAR_PLANE)
+    gluPerspective(fov if fov is not None else s.FOV, aspect, s.NEAR_PLANE, s.FAR_PLANE)
     glMatrixMode(GL_MODELVIEW)
 
 
@@ -116,6 +154,7 @@ def draw_grid():
         glVertex3f(20, -0.01, i)
     glEnd()
 
+
 def setup_display():
     pygame.init()
     flags = DOUBLEBUF | OPENGL
@@ -128,28 +167,60 @@ def setup_display():
     return screen
 
 
+def new_run(seed=None):
+    (
+        blocks,
+        collisions,
+        wall_solids,
+        platform_solids,
+        goal_z,
+        _summit_y,
+        map_seed,
+        summit_box,
+        guide_rails,
+        cores_total,
+    ) = build_tower(seed)
+    camera = FpsCamera(0, SPAWN_Y, SPAWN_Z)
+    return {
+        "blocks": blocks,
+        "collisions": collisions,
+        "wall_solids": wall_solids,
+        "platform_solids": platform_solids,
+        "goal_z": goal_z,
+        "map_seed": map_seed,
+        "summit_box": summit_box,
+        "guide_rails": guide_rails,
+        "cores_total": cores_total,
+        "camera": camera,
+        "checkpoint": [0.0, SPAWN_Y, SPAWN_Z],
+        "has_platform_checkpoint": False,
+        "respawn_grace": 0.0,
+        "run_start": time.perf_counter(),
+        "won": False,
+        "win_time": 0.0,
+        "is_new_best": False,
+        "previous_best": None,
+        "last_zone": "SHORE",
+        "zone_banner": 0.0,
+        "zone_banner_name": "",
+    }
+
+
 def main():
     setup_display()
     clock = pygame.time.Clock()
-
     setup_gl()
-    setup_projection(s.SCREEN_WIDTH, s.SCREEN_HEIGHT)
 
-    blocks, collisions, wall_solids, platform_solids, goal_z, _summit_y, map_seed = build_tower()
-    camera = FpsCamera(0, SPAWN_Y, SPAWN_Z)
-    checkpoint = [0.0, SPAWN_Y, SPAWN_Z]
-    has_platform_checkpoint = False
-    respawn_grace = 0.0
-
+    run = new_run()
+    mouse_locked = True
     pygame.event.set_grab(True)
     pygame.mouse.set_visible(False)
 
     running = True
-    mouse_locked = True
-
     while running:
         dt = clock.tick(s.FPS) / 1000.0
         dt = min(dt, 0.05)
+        pulse = time.perf_counter() - run["run_start"]
 
         for event in pygame.event.get():
             if event.type == QUIT:
@@ -157,61 +228,123 @@ def main():
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     running = False
-                elif event.key == pygame.K_TAB:
-                    mouse_locked = not mouse_locked
-                    pygame.event.set_grab(mouse_locked)
-                    pygame.mouse.set_visible(not mouse_locked)
-                elif event.key == pygame.K_SPACE:
-                    camera.request_jump()
-                elif event.key == pygame.K_r and s.TESTING_RESPAWN:
-                    respawn_camera(camera, checkpoint[0], checkpoint[1], checkpoint[2], platform_solids)
-                    respawn_grace = s.RESPAWN_GRACE
-            elif event.type == pygame.MOUSEMOTION and mouse_locked:
-                camera.process_mouse(event.rel)
+                elif run["won"] and event.key == pygame.K_RETURN:
+                    run = new_run()
+                    mouse_locked = True
+                    pygame.event.set_grab(True)
+                    pygame.mouse.set_visible(False)
+                elif not run["won"]:
+                    if event.key == pygame.K_TAB:
+                        mouse_locked = not mouse_locked
+                        pygame.event.set_grab(mouse_locked)
+                        pygame.mouse.set_visible(not mouse_locked)
+                    elif event.key == pygame.K_SPACE:
+                        run["camera"].request_jump()
+                    elif event.key == pygame.K_r and s.TESTING_RESPAWN:
+                        respawn_camera(
+                            run["camera"],
+                            run["checkpoint"][0],
+                            run["checkpoint"][1],
+                            run["checkpoint"][2],
+                            run["platform_solids"],
+                        )
+                        run["respawn_grace"] = s.RESPAWN_GRACE
+            elif event.type == pygame.MOUSEMOTION and mouse_locked and not run["won"]:
+                run["camera"].process_mouse(event.rel)
 
-        keys = pygame.key.get_pressed()
-        camera.apply_mouse()
-        camera.handle_input(keys, dt)
-        camera.update_timers(dt)
-        camera.try_jump(keys)
-        camera.apply_gravity(dt)
-        camera.move_with_collision(collisions, wall_solids, dt)
-        camera.update_wall_surf(wall_solids, keys)
+        camera = run["camera"]
 
-        if respawn_grace > 0:
-            respawn_grace -= dt
+        if not run["won"]:
+            keys = pygame.key.get_pressed()
+            camera.apply_mouse()
+            camera.handle_input(keys, dt)
+            camera.update_timers(dt)
+            camera.try_jump(keys)
+            camera.apply_gravity(dt)
+            camera.move_with_collision(run["collisions"], run["wall_solids"], dt)
+            camera.update_wall_surf(run["wall_solids"], keys)
+            camera.update_juice(dt)
 
-        if camera.on_ground:
-            top = find_platform_top(platform_solids, camera.x, camera.z)
-            if top is not None and abs(camera.y - top) <= s.LANDING_TOLERANCE + 0.05:
-                checkpoint[0], checkpoint[1], checkpoint[2] = camera.x, top, camera.z
-                has_platform_checkpoint = True
+            if run["respawn_grace"] > 0:
+                run["respawn_grace"] -= dt
 
-        if s.TESTING_RESPAWN and respawn_grace <= 0 and camera.y < s.FALL_RESPAWN_Y:
-            respawn_camera(camera, checkpoint[0], checkpoint[1], checkpoint[2], platform_solids)
-            respawn_grace = s.RESPAWN_GRACE
+            if camera.on_ground:
+                top = find_platform_top(run["platform_solids"], camera.x, camera.z)
+                if top is not None and abs(camera.y - top) <= s.LANDING_TOLERANCE + 0.05:
+                    run["checkpoint"][0], run["checkpoint"][1], run["checkpoint"][2] = camera.x, top, camera.z
+                    run["has_platform_checkpoint"] = True
+
+            if s.TESTING_RESPAWN and run["respawn_grace"] <= 0 and camera.y < s.FALL_RESPAWN_Y:
+                respawn_camera(
+                    camera,
+                    run["checkpoint"][0],
+                    run["checkpoint"][1],
+                    run["checkpoint"][2],
+                    run["platform_solids"],
+                )
+                run["respawn_grace"] = s.RESPAWN_GRACE
+
+            cores_collected = try_collect_cores(camera, run["blocks"])
+
+            zone = get_zone_name(camera.z)
+            if zone != run["last_zone"]:
+                run["last_zone"] = zone
+                run["zone_banner_name"] = zone
+                run["zone_banner"] = s.ZONE_BANNER_TIME
+
+            if run["zone_banner"] > 0:
+                run["zone_banner"] -= dt
+
+            if player_on_summit(camera, run["summit_box"], run["platform_solids"]):
+                run["won"] = True
+                run["win_time"] = time.perf_counter() - run["run_start"]
+                prev = get_best(run["map_seed"])
+                run["previous_best"] = prev["time"] if prev else None
+                run["is_new_best"] = save_best(run["map_seed"], run["win_time"], cores_collected)
+        else:
+            cores_collected = sum(1 for b in run["blocks"] if b["kind"] == "core" and b.get("collected"))
+            zone = "SUMMIT"
+
+        elapsed = (run["win_time"] if run["won"] else time.perf_counter() - run["run_start"])
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        setup_projection(s.SCREEN_WIDTH, s.SCREEN_HEIGHT)
+        setup_projection(s.SCREEN_WIDTH, s.SCREEN_HEIGHT, camera.get_fov())
         camera.apply_gl()
 
         draw_grid()
-        for block in blocks:
-            draw_block(block)
+        draw_guide_rails(run["guide_rails"])
+        for block in run["blocks"]:
+            draw_block(block, pulse=pulse)
 
         draw_crosshair()
-        draw_stamina_bar(camera.stamina, camera.is_sprinting)
-        draw_air_jump_indicator(camera.air_jumps_remaining, camera.on_ground)
+
+        if not run["won"]:
+            draw_stamina_bar(camera.stamina, camera.is_sprinting)
+            draw_air_jump_indicator(camera.air_jumps_remaining, camera.on_ground)
+            draw_timer(elapsed)
+            draw_cores(cores_collected, run["cores_total"])
+            if run["zone_banner"] > 0:
+                draw_zone_banner(run["zone_banner_name"], run["zone_banner"] / s.ZONE_BANNER_TIME)
+        else:
+            draw_win_screen(
+                run["win_time"],
+                run["map_seed"],
+                cores_collected,
+                run["cores_total"],
+                run["is_new_best"],
+                run["previous_best"],
+            )
 
         distance = max(0.0, camera.z - START_Z)
-        progress = min(100, int(100 * distance / goal_z))
-        zone = get_zone_name(camera.z)
-        draw_progress(distance, goal_z, camera.y, zone, map_seed)
-        draw_respawn_hint(has_platform_checkpoint)
+        progress = min(100, int(100 * distance / run["goal_z"]))
+        if not run["won"]:
+            draw_progress(distance, run["goal_z"], camera.y, zone, run["map_seed"], elapsed)
+            draw_respawn_hint(run["has_platform_checkpoint"])
+
         state = "SURF" if camera.wall_surfing else ("SPRINT" if camera.is_sprinting else "RUN")
         caption = (
-            f"{s.TITLE}  |  {int(distance)}m / {int(goal_z)}m  |  {progress}%  |  {state}  |  "
-            f"Space: jump  |  Shift: sprint  |  Hit wall: surf down + bonus jump"
+            f"{s.TITLE}  |  {int(distance)}m / {int(run['goal_z'])}m  |  {progress}%  |  {state}  |  "
+            f"Reach the SUMMIT platform to win"
         )
         pygame.display.set_caption(caption)
         pygame.display.flip()

@@ -28,6 +28,10 @@ class FpsCamera:
         self.wall_jump_available = False
         self.wall_regrab_timer = 0.0
         self.wall_jumps_this_air = 0
+        self.landing_kick = 0.0
+        self.fov_boost = 0.0
+        self._was_on_ground = False
+        self._prev_vy = 0.0
         self._was_wall_surfing = False
         self._accumulated_mouse = [0.0, 0.0]
 
@@ -138,6 +142,20 @@ class FpsCamera:
         if self.wall_regrab_timer > 0:
             self.wall_regrab_timer -= dt
 
+    def update_juice(self, dt):
+        self.landing_kick = max(0.0, self.landing_kick - dt * 7.0)
+        self.fov_boost = max(0.0, self.fov_boost - dt * 14.0)
+
+    def note_landing(self, impact_speed):
+        if impact_speed < 3.0:
+            return
+        strength = min(1.0, impact_speed / 18.0) * s.LANDING_KICK_STRENGTH
+        self.landing_kick = strength
+        self.fov_boost = s.LANDING_FOV_BOOST * strength
+
+    def get_fov(self):
+        return s.FOV + self.fov_boost
+
     def _find_wall_contact(self, wall_solids):
         """Detect nearby surf-wall faces (works after collision pushes player to surface)."""
         r = s.PLAYER_RADIUS
@@ -245,20 +263,24 @@ class FpsCamera:
         wall_set = set(wall_solids)
         r = s.PLAYER_RADIUS
         h = s.PLAYER_HEIGHT
+        pre_vy = self.vy
 
         self.x += self.vx * dt
         self._collide_axis(solids, wall_set, r, h, axis="x", was_on_ground=was_on_ground)
 
         self.y += self.vy * dt
-        self._collide_axis(solids, wall_set, r, h, axis="y", was_on_ground=was_on_ground)
+        self._collide_axis(solids, wall_set, r, h, axis="y", was_on_ground=was_on_ground, pre_vy=pre_vy)
 
         self.z += self.vz * dt
         self._collide_axis(solids, wall_set, r, h, axis="z", was_on_ground=was_on_ground)
 
         if not self.on_ground and self.vy <= 0 and not self.wall_surfing:
-            self._snap_to_ground(solids, r, h)
+            self._snap_to_ground(solids, r, h, pre_vy)
 
-    def _snap_to_ground(self, solids, r, h):
+        self._was_on_ground = self.on_ground
+        self._prev_vy = self.vy
+
+    def _snap_to_ground(self, solids, r, h, pre_vy=0.0):
         px0, _, pz0, px1, _, pz1 = self._player_box(r, h)
         feet = self.y
         best_top = None
@@ -271,6 +293,8 @@ class FpsCamera:
                     best_top = sy1
         if best_top is not None:
             self.y = best_top
+            if pre_vy < -1.0:
+                self.note_landing(abs(pre_vy))
             self.vy = 0.0
             self.on_ground = True
             self.wall_surfing = False
@@ -280,7 +304,7 @@ class FpsCamera:
     def _player_box(self, r, h):
         return (self.x - r, self.y, self.z - r, self.x + r, self.y + h, self.z + r)
 
-    def _collide_axis(self, solids, wall_set, r, h, axis, was_on_ground=False):
+    def _collide_axis(self, solids, wall_set, r, h, axis, was_on_ground=False, pre_vy=0.0):
         px0, py0, pz0, px1, py1, pz1 = self._player_box(r, h)
         airborne = not was_on_ground
 
@@ -321,6 +345,8 @@ class FpsCamera:
 
             elif axis == "y":
                 if self.vy < 0:
+                    if pre_vy < -1.0:
+                        self.note_landing(abs(pre_vy))
                     self.y = sy1
                     self.vy = 0
                     self.on_ground = True
@@ -370,6 +396,7 @@ class FpsCamera:
 
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
-        glRotatef(math.degrees(self.pitch), 1, 0, 0)
+        pitch = self.pitch + self.landing_kick * 0.35
+        glRotatef(math.degrees(pitch), 1, 0, 0)
         glRotatef(math.degrees(self.yaw), 0, 1, 0)
         glTranslatef(-self.x, -self.eye_y, -self.z)

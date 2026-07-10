@@ -33,6 +33,7 @@ from OpenGL.GL import GL_DEPTH_TEST, GL_FOG, GL_PROJECTION, GL_MODELVIEW
 import settings as s
 
 _FONT = None
+_TITLE_FONT = None
 
 
 def _font():
@@ -40,6 +41,19 @@ def _font():
     if _FONT is None:
         _FONT = pygame.font.SysFont("consolas", 22, bold=True)
     return _FONT
+
+
+def _title_font():
+    global _TITLE_FONT
+    if _TITLE_FONT is None:
+        _TITLE_FONT = pygame.font.SysFont("consolas", 42, bold=True)
+    return _TITLE_FONT
+
+
+def _format_time(seconds):
+    mins = int(seconds // 60)
+    secs = seconds - mins * 60
+    return f"{mins}:{secs:05.2f}"
 
 
 def _blit_surface(surface, x, y):
@@ -133,8 +147,68 @@ def draw_air_jump_indicator(air_jumps_remaining, on_ground):
     _blit_surface(surf, 24, 88)
 
 
-def draw_progress(distance, goal_distance, height, zone_name="", map_seed=0):
-    line = f"{zone_name}  |  {int(distance)}m / {int(goal_distance)}m  |  H:{int(height)}m  |  Seed:{map_seed}"
+def draw_timer(elapsed):
+    text = _font().render(f"TIME  {_format_time(elapsed)}", True, (200, 210, 240))
+    surf = pygame.Surface((text.get_width() + 16, text.get_height() + 8), pygame.SRCALPHA)
+    surf.blit(text, (8, 4))
+    _blit_surface(surf, 24, 148)
+
+
+def draw_cores(collected, total):
+    if total <= 0:
+        return
+    text = _font().render(f"CORES  {collected}/{total}", True, (255, 140, 255))
+    surf = pygame.Surface((text.get_width() + 16, text.get_height() + 8), pygame.SRCALPHA)
+    surf.blit(text, (8, 4))
+    _blit_surface(surf, 24, 182)
+
+
+def draw_zone_banner(zone_name, alpha):
+    if alpha <= 0 or not zone_name:
+        return
+    a = max(0, min(255, int(alpha * 255)))
+    title = _title_font().render(zone_name, True, (120, 255, 220))
+    sub = _font().render("ZONE ENTERED", True, (180, 200, 220))
+    pad_x, pad_y = 32, 20
+    w = max(title.get_width(), sub.get_width()) + pad_x * 2
+    h = title.get_height() + sub.get_height() + pad_y * 2 + 8
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    surf.fill((10, 12, 28, int(a * 0.75)))
+    surf.blit(title, (pad_x, pad_y))
+    surf.blit(sub, (pad_x, pad_y + title.get_height() + 8))
+    _blit_surface(surf, (s.SCREEN_WIDTH - w) // 2, s.SCREEN_HEIGHT // 3)
+
+
+def draw_win_screen(elapsed, map_seed, cores_collected, cores_total, is_new_best, previous_best):
+    overlay = pygame.Surface((s.SCREEN_WIDTH, s.SCREEN_HEIGHT), pygame.SRCALPHA)
+    overlay.fill((5, 4, 14, 190))
+    cx = s.SCREEN_WIDTH // 2
+
+    lines = [
+        (_title_font().render("SUMMIT REACHED", True, (255, 230, 90)), 0),
+        (_font().render(f"Time:  {_format_time(elapsed)}", True, (200, 240, 220)), 56),
+        (_font().render(f"Seed:  {map_seed}", True, (170, 210, 200)), 88),
+        (_font().render(f"Cores:  {cores_collected}/{cores_total}", True, (255, 160, 255)), 120),
+    ]
+    if is_new_best:
+        lines.append((_font().render("NEW BEST TIME!", True, (255, 210, 80)), 152))
+    elif previous_best is not None:
+        lines.append((_font().render(f"Best:  {_format_time(previous_best)}", True, (150, 170, 190)), 152))
+
+    hint = _font().render("Enter — new run   Esc — quit", True, (140, 150, 175))
+    total_h = 200
+    for surf, yoff in lines:
+        overlay.blit(surf, (cx - surf.get_width() // 2, s.SCREEN_HEIGHT // 3 + yoff))
+        total_h = s.SCREEN_HEIGHT // 3 + yoff + surf.get_height()
+    overlay.blit(hint, (cx - hint.get_width() // 2, total_h + 40))
+    _blit_surface(overlay, 0, 0)
+
+
+def draw_progress(distance, goal_distance, height, zone_name="", map_seed=0, elapsed=0.0):
+    line = (
+        f"{zone_name}  |  {int(distance)}m / {int(goal_distance)}m  |  "
+        f"H:{int(height)}m  |  {_format_time(elapsed)}  |  Seed:{map_seed}"
+    )
     text = _font().render(line, True, (170, 230, 210))
     surf = pygame.Surface((text.get_width() + 16, text.get_height() + 8), pygame.SRCALPHA)
     surf.blit(text, (8, 4))
