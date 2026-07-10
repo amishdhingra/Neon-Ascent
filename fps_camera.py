@@ -1,4 +1,4 @@
-"""First-person camera — Celeste-style movement in 3D."""
+"""First-person camera — Titanfall-style wall surf + Celeste air movement."""
 
 import math
 
@@ -23,15 +23,20 @@ class FpsCamera:
         self.is_sprinting = False
         self.jump_buffer = 0.0
         self.coyote_timer = 0.0
-        self.wall_normal = None  # (nx, nz) pointing away from the wall
-        self.wall_sliding = False
-        self.can_wall_jump = True
+        self.wall_normal = None
+        self.wall_surfing = False
+        self.wall_jump_available = False
         self.wall_regrab_timer = 0.0
+        self._was_wall_surfing = False
         self._accumulated_mouse = [0.0, 0.0]
 
     @property
     def eye_y(self):
         return self.y + s.PLAYER_HEIGHT * 0.88
+
+    @property
+    def wall_sliding(self):
+        return self.wall_surfing
 
     def forward(self):
         return (math.sin(self.yaw), 0.0, -math.cos(self.yaw))
@@ -53,63 +58,7 @@ class FpsCamera:
     def request_jump(self):
         self.jump_buffer = s.JUMP_BUFFER_TIME
 
-    def handle_input(self, keys, dt):
-        fx, _, fz = self.forward()
-        rx, _, rz = self.right()
-        moving = any(keys[k] for k in (pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d))
-        wants_sprint = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
-
-        self.is_sprinting = False
-        speed = s.MOVE_SPEED
-        if wants_sprint and moving and self.stamina > 0:
-            speed = s.SPRINT_SPEED
-            self.is_sprinting = True
-            self.stamina = max(0.0, self.stamina - s.SPRINT_DRAIN_RATE * dt)
-        elif self.stamina < s.SPRINT_STAMINA_MAX:
-            self.stamina = min(s.SPRINT_STAMINA_MAX, self.stamina + s.SPRINT_REGEN_RATE * dt)
-
-        move_x = 0.0
-        move_z = 0.0
-        if keys[pygame.K_w]:
-            move_x += fx
-            move_z += fz
-        if keys[pygame.K_s]:
-            move_x -= fx
-            move_z -= fz
-        if keys[pygame.K_d]:
-            move_x += rx
-            move_z += rz
-        if keys[pygame.K_a]:
-            move_x -= rx
-            move_z -= rz
-
-        length = math.hypot(move_x, move_z)
-        if length > 0:
-            move_x /= length
-            move_z /= length
-
-        self.vx = move_x * speed
-        self.vz = move_z * speed
-
-    def update_timers(self, dt):
-        if self.on_ground:
-            self.coyote_timer = s.COYOTE_TIME
-            self.can_wall_jump = True
-        elif self.coyote_timer > 0:
-            self.coyote_timer -= dt
-
-        if self.jump_buffer > 0:
-            self.jump_buffer -= dt
-        if self.wall_regrab_timer > 0:
-            self.wall_regrab_timer -= dt
-
-    def update_wall_contact(self, wall_solids, keys):
-        self.wall_normal = None
-        self.wall_sliding = False
-
-        if self.on_ground or self.wall_regrab_timer > 0:
-            return
-
+    def _wish_direction(self, keys):
         fx, _, fz = self.forward()
         rx, _, rz = self.right()
         wish_x = wish_z = 0.0
@@ -125,64 +74,125 @@ class FpsCamera:
         if keys[pygame.K_a]:
             wish_x -= rx
             wish_z -= rz
+        length = math.hypot(wish_x, wish_z)
+        if length > 0:
+            wish_x /= length
+            wish_z /= length
+        return wish_x, wish_z
 
-        wish_len = math.hypot(wish_x, wish_z)
-        if wish_len > 0:
-            wish_x /= wish_len
-            wish_z /= wish_len
-
-        contact = self._find_wall_contact(wall_solids)
-        if contact is None:
+    def handle_input(self, keys, dt):
+        if self.wall_surfing:
+            if not self.is_sprinting and self.stamina < s.SPRINT_STAMINA_MAX:
+                self.stamina = min(s.SPRINT_STAMINA_MAX, self.stamina + s.SPRINT_REGEN_RATE * dt)
             return
 
-        nx, nz = contact
-        # Pressing into the wall (dot product negative = moving toward wall)
-        into_wall = wish_x * nx + wish_z * nz
-        if into_wall < -0.25:
-            self.wall_normal = (nx, nz)
-            self.wall_sliding = True
+        wish_x, wish_z = self._wish_direction(keys)
+        moving = wish_x != 0 or wish_z != 0
+        wants_sprint = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+
+        self.is_sprinting = False
+        speed = s.MOVE_SPEED
+        if wants_sprint and moving and self.stamina > 0:
+            speed = s.SPRINT_SPEED
+            self.is_sprinting = True
+            self.stamina = max(0.0, self.stamina - s.SPRINT_DRAIN_RATE * dt)
+        elif self.stamina < s.SPRINT_STAMINA_MAX:
+            self.stamina = min(s.SPRINT_STAMINA_MAX, self.stamina + s.SPRINT_REGEN_RATE * dt)
+
+        self.vx = wish_x * speed
+        self.vz = wish_z * speed
+
+    def _apply_wall_surf_velocity(self, keys):
+        if not self.wall_normal:
+            return
+        nx, nz = self.wall_normal
+        tx, tz = -nz, nx
+        wish_x, wish_z = self._wish_direction(keys)
+        along = wish_x * tx + wish_z * tz
+        lateral = s.WALL_SURF_LATERAL
+        self.is_sprinting = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+        if self.is_sprinting and self.stamina > 0:
+            lateral *= 1.25
+            self.stamina = max(0.0, self.stamina - s.SPRINT_DRAIN_RATE * 0.016)
+        else:
+            self.is_sprinting = False
+        self.vy = -s.WALL_SURF_SPEED
+        self.vx = tx * along * lateral
+        self.vz = tz * along * lateral
+        into = self.vx * nx + self.vz * nz
+        if into < 0:
+            self.vx -= into * nx
+            self.vz -= into * nz
+
+    def update_timers(self, dt):
+        if self.on_ground:
+            self.coyote_timer = s.COYOTE_TIME
+            self.wall_jump_available = True
+        elif self.coyote_timer > 0:
+            self.coyote_timer -= dt
+
+        if self.jump_buffer > 0:
+            self.jump_buffer -= dt
+        if self.wall_regrab_timer > 0:
+            self.wall_regrab_timer -= dt
 
     def _find_wall_contact(self, wall_solids):
+        """Detect nearby surf-wall faces (works after collision pushes player to surface)."""
         r = s.PLAYER_RADIUS
         h = s.PLAYER_HEIGHT
         px0, py0, pz0, px1, py1, pz1 = self._player_box(r, h)
-        probe = 0.18
+        slack = s.WALL_CONTACT_DIST
 
         best = None
-        best_depth = 0.0
+        best_dist = slack + 1.0
 
         for sx0, sy0, sz0, sx1, sy1, sz1 in wall_solids:
             if sy1 - sy0 < s.WALL_MIN_HEIGHT:
                 continue
-            if py1 <= sy0 + 0.2 or py0 >= sy1 - 0.2:
+            if py1 <= sy0 + 0.15 or py0 >= sy1 - 0.1:
                 continue
 
-            # +X face (player on the right side of wall)
-            if px0 <= sx1 <= px1 + probe and pz1 > sz0 + 0.1 and pz0 < sz1 - 0.1:
-                depth = sx1 - px0
-                if depth > best_depth:
-                    best_depth = depth
-                    best = (1.0, 0.0)
-            # -X face
-            if px1 >= sx0 >= px0 - probe and pz1 > sz0 + 0.1 and pz0 < sz1 - 0.1:
-                depth = px1 - sx0
-                if depth > best_depth:
-                    best_depth = depth
-                    best = (-1.0, 0.0)
-            # +Z face
-            if pz0 <= sz1 <= pz1 + probe and px1 > sx0 + 0.1 and px0 < sx1 - 0.1:
-                depth = sz1 - pz0
-                if depth > best_depth:
-                    best_depth = depth
-                    best = (0.0, 1.0)
-            # -Z face
-            if pz1 >= sz0 >= pz0 - probe and px1 > sx0 + 0.1 and px0 < sx1 - 0.1:
-                depth = pz1 - sz0
-                if depth > best_depth:
-                    best_depth = depth
-                    best = (0.0, -1.0)
+            z_overlap = pz1 > sz0 + 0.05 and pz0 < sz1 - 0.05
+            x_overlap = px1 > sx0 + 0.05 and px0 < sx1 - 0.05
+
+            checks = []
+            if z_overlap:
+                checks.append((abs(px1 - sx0), (-1.0, 0.0)))
+                checks.append((abs(px0 - sx1), (1.0, 0.0)))
+            if x_overlap:
+                checks.append((abs(pz1 - sz0), (0.0, -1.0)))
+                checks.append((abs(pz0 - sz1), (0.0, 1.0)))
+
+            for dist, normal in checks:
+                if dist <= slack and dist < best_dist:
+                    best_dist = dist
+                    best = normal
 
         return best
+
+    def update_wall_surf(self, wall_solids, keys):
+        if self.on_ground or self.wall_regrab_timer > 0:
+            self.wall_surfing = False
+            self.wall_normal = None
+            self._was_wall_surfing = False
+            return
+
+        contact = self._find_wall_contact(wall_solids)
+        if contact is None:
+            self.wall_surfing = False
+            self.wall_normal = None
+            self._was_wall_surfing = False
+            return
+
+        self.wall_normal = contact
+        self.wall_surfing = True
+
+        if not self._was_wall_surfing:
+            self.wall_jump_available = True
+            self.air_jumps_remaining = max(self.air_jumps_remaining, s.MAX_AIR_JUMPS)
+
+        self._was_wall_surfing = True
+        self._apply_wall_surf_velocity(keys)
 
     def try_jump(self, keys):
         if self.jump_buffer <= 0:
@@ -193,65 +203,55 @@ class FpsCamera:
             self.on_ground = False
             self.coyote_timer = 0.0
             self.air_jumps_remaining = s.MAX_AIR_JUMPS
-            self.can_wall_jump = True
+            self.wall_jump_available = True
             self.jump_buffer = 0.0
             return
 
-        if self.wall_normal and self.can_wall_jump:
+        if self.wall_surfing and self.wall_jump_available and self.wall_normal:
             nx, nz = self.wall_normal
             self.vy = s.WALL_JUMP_SPEED
             self.vx = nx * s.WALL_JUMP_PUSH
             self.vz = nz * s.WALL_JUMP_PUSH
+            self.wall_surfing = False
             self.wall_normal = None
-            self.wall_sliding = False
-            self.can_wall_jump = False
+            self.wall_jump_available = False
+            self._was_wall_surfing = False
             self.wall_regrab_timer = s.WALL_REGRAB_COOLDOWN
             self.jump_buffer = 0.0
             return
 
-        if self.air_jumps_remaining > 0 and not self.wall_sliding:
+        if self.air_jumps_remaining > 0:
             self.vy = s.DOUBLE_JUMP_SPEED
-            fx, _, fz = self.forward()
-            rx, _, rz = self.right()
-            steer_x = steer_z = 0.0
-            if keys[pygame.K_a]:
-                steer_x -= rx
-                steer_z -= rz
-            if keys[pygame.K_d]:
-                steer_x += rx
-                steer_z += rz
-            if keys[pygame.K_w]:
-                steer_x += fx
-                steer_z += fz
-            if steer_x != 0 or steer_z != 0:
-                slen = math.hypot(steer_x, steer_z)
-                self.vx += (steer_x / slen) * s.DOUBLE_JUMP_BOOST
-                self.vz += (steer_z / slen) * s.DOUBLE_JUMP_BOOST
+            wish_x, wish_z = self._wish_direction(keys)
+            if wish_x != 0 or wish_z != 0:
+                self.vx += wish_x * s.DOUBLE_JUMP_BOOST
+                self.vz += wish_z * s.DOUBLE_JUMP_BOOST
             self.air_jumps_remaining -= 1
             self.jump_buffer = 0.0
 
     def apply_gravity(self, dt):
+        if self.wall_surfing:
+            return
         self.vy -= s.GRAVITY * dt
-        if self.wall_sliding and self.vy < -s.WALL_SLIDE_SPEED:
-            self.vy = -s.WALL_SLIDE_SPEED
-        elif self.vy < -s.MAX_FALL_SPEED:
+        if self.vy < -s.MAX_FALL_SPEED:
             self.vy = -s.MAX_FALL_SPEED
 
-    def move_with_collision(self, solids, dt):
+    def move_with_collision(self, solids, wall_solids, dt):
         self.on_ground = False
+        wall_set = set(wall_solids)
         r = s.PLAYER_RADIUS
         h = s.PLAYER_HEIGHT
 
         self.x += self.vx * dt
-        self._collide_axis(solids, r, h, axis="x")
+        self._collide_axis(solids, wall_set, r, h, axis="x")
 
         self.y += self.vy * dt
-        self._collide_axis(solids, r, h, axis="y")
+        self._collide_axis(solids, wall_set, r, h, axis="y")
 
         self.z += self.vz * dt
-        self._collide_axis(solids, r, h, axis="z")
+        self._collide_axis(solids, wall_set, r, h, axis="z")
 
-        if not self.on_ground and self.vy <= 0 and not self.wall_sliding:
+        if not self.on_ground and self.vy <= 0 and not self.wall_surfing:
             self._snap_to_ground(solids, r, h)
 
     def _snap_to_ground(self, solids, r, h):
@@ -269,35 +269,68 @@ class FpsCamera:
             self.y = best_top
             self.vy = 0.0
             self.on_ground = True
+            self.wall_surfing = False
+            self.wall_normal = None
+            self._was_wall_surfing = False
 
     def _player_box(self, r, h):
         return (self.x - r, self.y, self.z - r, self.x + r, self.y + h, self.z + r)
 
-    def _collide_axis(self, solids, r, h, axis):
+    def _collide_axis(self, solids, wall_set, r, h, axis):
         px0, py0, pz0, px1, py1, pz1 = self._player_box(r, h)
-        for sx0, sy0, sz0, sx1, sy1, sz1 in solids:
+        for box in solids:
+            sx0, sy0, sz0, sx1, sy1, sz1 = box
             if px1 <= sx0 or px0 >= sx1 or py1 <= sy0 or py0 >= sy1 or pz1 <= sz0 or pz0 >= sz1:
                 continue
+
+            is_wall = box in wall_set
+            airborne = not self.on_ground
+
             if axis == "x":
-                if self.vx > 0:
+                pen_left = px1 - sx0
+                pen_right = sx1 - px0
+                if self.vx > 0 and pen_left > 0 and pen_left <= pen_right:
                     self.x = sx0 - r
-                elif self.vx < 0:
+                    if is_wall and airborne:
+                        self.wall_normal = (-1.0, 0.0)
+                    elif not (is_wall and airborne):
+                        self.vx = 0
+                elif self.vx < 0 and pen_right > 0 and pen_right < pen_left:
                     self.x = sx1 + r
-                self.vx = 0
+                    if is_wall and airborne:
+                        self.wall_normal = (1.0, 0.0)
+                    elif not (is_wall and airborne):
+                        self.vx = 0
+
             elif axis == "y":
-                if self.vy < 0:
+                pen_down = py1 - sy0
+                pen_up = sy1 - py0
+                if self.vy < 0 and pen_down > 0 and pen_down <= pen_up:
                     self.y = sy1
                     self.vy = 0
                     self.on_ground = True
-                elif self.vy > 0:
+                    self.wall_surfing = False
+                    self.wall_normal = None
+                    self._was_wall_surfing = False
+                elif self.vy > 0 and pen_up > 0 and pen_up < pen_down:
                     self.y = sy0 - h
                     self.vy = 0
+
             elif axis == "z":
-                if self.vz > 0:
+                pen_back = pz1 - sz0
+                pen_front = sz1 - pz0
+                if self.vz > 0 and pen_back > 0 and pen_back <= pen_front:
                     self.z = sz0 - r
-                elif self.vz < 0:
+                    if is_wall and airborne:
+                        self.wall_normal = (0.0, -1.0)
+                    elif not (is_wall and airborne):
+                        self.vz = 0
+                elif self.vz < 0 and pen_front > 0 and pen_front < pen_back:
                     self.z = sz1 + r
-                self.vz = 0
+                    if is_wall and airborne:
+                        self.wall_normal = (0.0, 1.0)
+                    elif not (is_wall and airborne):
+                        self.vz = 0
 
     def apply_gl(self):
         from OpenGL.GL import (

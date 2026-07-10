@@ -1,10 +1,10 @@
 # Neon Ascent
 
-A punishing **3D first-person** vertical climb through a glowing neon tower. Jump between floating platforms — don't look down.
+A punishing **3D first-person** platformer through a glowing neon course. Run forward across floating platforms — don't look down.
 
 ## Status
 
-**3D first-person prototype** — pygame-ce + PyOpenGL (works on Windows ARM64).
+**3D first-person prototype** — pygame-ce + PyOpenGL. The course runs **forward horizontally** with small height steps, like a classic platformer route stretched into 3D.
 
 The old 2D platformer lives in `legacy_2d/` if you want to reference it.
 
@@ -14,7 +14,8 @@ The old 2D platformer lives in `legacy_2d/` if you want to reference it.
 - **Mouse** — Look around
 - **Space** — Jump (double jump in mid-air; steer with WASD on double jump)
 - **Shift** — Sprint (stamina bar top-left)
-- **Hold into a wall in mid-air** — Wall slide, then jump to wall jump off
+- **Jump into orange walls** — Surf down them (no sticking); grants a bonus air jump
+- **Space on a wall** — Wall jump off, then double jump in the air
 - **Tab** — Toggle mouse lock
 - **Esc** — Quit (exits fullscreen)
 

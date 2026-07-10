@@ -1,4 +1,4 @@
-"""Neon Ascent — 3D first-person vertical climb."""
+"""Neon Ascent — 3D first-person platformer climb."""
 
 import sys
 
@@ -18,7 +18,6 @@ from OpenGL.GL import (
     GL_LINES,
     GL_MODELVIEW,
     GL_PROJECTION,
-    GL_QUADS,
     GL_EXP2,
     glBegin,
     glClear,
@@ -32,16 +31,18 @@ from OpenGL.GL import (
     glLineWidth,
     glLoadIdentity,
     glMatrixMode,
-    glOrtho,
     glVertex3f,
 )
 from OpenGL.GLU import gluPerspective
 
 import settings as s
 from fps_camera import FpsCamera
+from hud import draw_progress, draw_stamina_bar
 from world3d import build_tower, draw_block
 
 SPAWN_Y = 0.3
+SPAWN_Z = 4.0
+START_Z = 0.0
 
 
 def setup_gl():
@@ -51,9 +52,9 @@ def setup_gl():
     glEnable(GL_FOG)
     glFogi(GL_FOG_MODE, GL_EXP2)
     glFogfv(GL_FOG_COLOR, (*s.COLOUR_FOG, 1.0))
-    glFogf(GL_FOG_DENSITY, 0.012)
-    glFogf(GL_FOG_START, 8.0)
-    glFogf(GL_FOG_END, 90.0)
+    glFogf(GL_FOG_DENSITY, 0.006)
+    glFogf(GL_FOG_START, 20.0)
+    glFogf(GL_FOG_END, 180.0)
 
 
 def setup_projection(width, height):
@@ -79,53 +80,15 @@ def draw_crosshair():
     glEnd()
 
 
-def draw_stamina_bar(stamina):
-    """Screen-space stamina bar (top-left)."""
-    glMatrixMode(GL_PROJECTION)
-    glLoadIdentity()
-    glOrtho(0, s.SCREEN_WIDTH, s.SCREEN_HEIGHT, 0, -1, 1)
-    glMatrixMode(GL_MODELVIEW)
-    glLoadIdentity()
-
-    bar_x, bar_y = 20, 20
-    bar_w, bar_h = 180, 16
-    fill = bar_w * (stamina / s.SPRINT_STAMINA_MAX)
-
-    def rect(x, y, w, h, colour):
-        glColor3f(*colour)
-        glBegin(GL_QUADS)
-        glVertex3f(x, y, 0)
-        glVertex3f(x + w, y, 0)
-        glVertex3f(x + w, y + h, 0)
-        glVertex3f(x, y + h, 0)
-        glEnd()
-
-    rect(bar_x, bar_y, bar_w, bar_h, s.COLOUR_STAMINA_BG)
-    if fill > 0:
-        rect(bar_x, bar_y, fill, bar_h, s.COLOUR_STAMINA_FILL)
-    glColor3f(0.35, 0.35, 0.5)
-    glBegin(GL_LINES)
-    glVertex3f(bar_x, bar_y, 0)
-    glVertex3f(bar_x + bar_w, bar_y, 0)
-    glVertex3f(bar_x + bar_w, bar_y, 0)
-    glVertex3f(bar_x + bar_w, bar_y + bar_h, 0)
-    glVertex3f(bar_x + bar_w, bar_y + bar_h, 0)
-    glVertex3f(bar_x, bar_y + bar_h, 0)
-    glVertex3f(bar_x, bar_y + bar_h, 0)
-    glVertex3f(bar_x, bar_y, 0)
-    glEnd()
-
-
 def draw_grid():
     glColor3f(0.12, 0.1, 0.22)
     glBegin(GL_LINES)
-    for i in range(-30, 31, 2):
-        glVertex3f(i, -0.01, -30)
-        glVertex3f(i, -0.01, 30)
-        glVertex3f(-30, -0.01, i)
-        glVertex3f(30, -0.01, i)
+    for i in range(-20, 21, 2):
+        glVertex3f(i, -0.01, -20)
+        glVertex3f(i, -0.01, 520)
+        glVertex3f(-20, -0.01, i)
+        glVertex3f(20, -0.01, i)
     glEnd()
-
 
 def setup_display():
     pygame.init()
@@ -146,8 +109,8 @@ def main():
     setup_gl()
     setup_projection(s.SCREEN_WIDTH, s.SCREEN_HEIGHT)
 
-    blocks, collisions, wall_solids, summit_y = build_tower(seed=42)
-    camera = FpsCamera(0, SPAWN_Y, 0)
+    blocks, collisions, wall_solids, goal_z, _summit_y = build_tower(seed=42)
+    camera = FpsCamera(0, SPAWN_Y, SPAWN_Z)
 
     pygame.event.set_grab(True)
     pygame.mouse.set_visible(False)
@@ -178,13 +141,13 @@ def main():
         camera.apply_mouse()
         camera.handle_input(keys, dt)
         camera.update_timers(dt)
-        camera.update_wall_contact(wall_solids, keys)
-        camera.try_jump(keys)
         camera.apply_gravity(dt)
-        camera.move_with_collision(collisions, dt)
+        camera.move_with_collision(collisions, wall_solids, dt)
+        camera.update_wall_surf(wall_solids, keys)
+        camera.try_jump(keys)
 
         if camera.y < -15:
-            camera.x, camera.y, camera.z = 0, SPAWN_Y, 0
+            camera.x, camera.y, camera.z = 0, SPAWN_Y, SPAWN_Z
             camera.vx = camera.vy = camera.vz = 0
             camera.air_jumps_remaining = 0
 
@@ -197,14 +160,15 @@ def main():
             draw_block(block)
 
         draw_crosshair()
-        draw_stamina_bar(camera.stamina)
+        draw_stamina_bar(camera.stamina, camera.is_sprinting)
 
-        height = max(0, int(camera.y))
-        progress = min(100, int(100 * camera.y / summit_y))
-        state = "WALL" if camera.wall_sliding else ("SPRINT" if camera.is_sprinting else "RUN")
+        distance = max(0.0, camera.z - START_Z)
+        progress = min(100, int(100 * distance / goal_z))
+        draw_progress(distance, goal_z, camera.y)
+        state = "SURF" if camera.wall_surfing else ("SPRINT" if camera.is_sprinting else "RUN")
         caption = (
-            f"{s.TITLE}  |  {height}m  |  {progress}%  |  {state}  |  "
-            f"Space: jump (double in air)  |  Shift: sprint  |  Hold into wall: slide"
+            f"{s.TITLE}  |  {int(distance)}m / {int(goal_z)}m  |  {progress}%  |  {state}  |  "
+            f"Space: jump  |  Shift: sprint  |  Hit wall: surf down + bonus jump"
         )
         pygame.display.set_caption(caption)
         pygame.display.flip()
